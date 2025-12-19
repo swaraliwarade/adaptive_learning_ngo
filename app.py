@@ -1,5 +1,5 @@
 import streamlit as st
-from ratings import *
+from ratings import show_rating_ui
 from matching import find_matches
 
 # -------------------------------
@@ -173,4 +173,18 @@ if st.session_state.stage == 3:
         if st.button("End Session"):
             st.session_state.stage = 4
             st.rerun()
+# -------------------------------
+# STAGE 4 : Rating & Rewards
+# -------------------------------
+if st.session_state.stage == 4:
+    st.header("Session Completed 🎉")
+    st.write("Please rate your mentor")
 
+    show_rating_ui()
+    if st.button("Finish"):
+        st.success("Thank you for using the Peer Learning Matchmaking System!")
+        st.session_state.stage = 1
+        st.session_state.profile = {}
+        st.session_state.current_match = {}
+        st.rerun()
+        
