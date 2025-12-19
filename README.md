@@ -81,7 +81,7 @@ Follow these steps to set up the **Sahay** prototype on your computer:
 1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/GitBeat16/adaptive_learning_ngo/tree/main
+git clone https://github.com/GitBeat16/adaptive_learning_ngo.git
 ```
 
 2. **Install dependencies:**
@@ -130,6 +130,7 @@ https://adaptivelearningngo-ctc-thesemicolon.streamlit.app/
 ## 🏆 Hackathon Note
 This project is a functional prototype developed during a hackathon.
 The focus is on demonstrating logic, user flow, and scalability, with advanced features planned for future development.
+
 
 
 
