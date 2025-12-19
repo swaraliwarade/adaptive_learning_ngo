@@ -98,12 +98,12 @@ streamlit run app.py
 
 4. **Access the App:** Open your browser and go to `http://localhost:8501`.
 
-#🌐 Live Demo
+# 🌐 Live Demo
 
 🔗 Streamlit Community Cloud Deployment
 https://adaptivelearningngo-ctc-thesemicolon.streamlit.app/
 
-##🔮 Future Scope
+## 🔮 Future Scope
 
 Real-time chat and video calling (WebRTC integration)
 AI-powered doubt resolution
@@ -112,7 +112,7 @@ Mentor analytics and performance tracking
 WhatsApp/SMS reminders for learning sessions
 Support for vocational and skill-based learning
 
-##👥 Team Details
+## 👥 Team Details
 
 Team Name: The Semicolon
 Project Name: Sahay – Peer Learning Matching System
@@ -127,9 +127,10 @@ Nikita Sharma
 Tanieeshka Sonawane
 Anushka Dhane
 
-##🏆 Hackathon Note
+## 🏆 Hackathon Note
 This project is a functional prototype developed during a hackathon.
 The focus is on demonstrating logic, user flow, and scalability, with advanced features planned for future development.
+
 
 
 
