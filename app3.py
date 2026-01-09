@@ -39,7 +39,7 @@ h1, h2, h3 {
    NORMAL TEXT
 ========================= */
 p, span, div, label {
-    color: black;
+    color: white;
     font-family: "Inter", "Segoe UI", Arial, sans-serif;
 }
 
