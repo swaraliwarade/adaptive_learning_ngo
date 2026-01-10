@@ -1,6 +1,8 @@
 import streamlit as st
 import time
 from materials import materials_page
+from ratings import show_rating_ui
+from matching import find_matches
 
 # =========================================================
 # PAGE CONFIG
