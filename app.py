@@ -6,7 +6,7 @@ import time
 # =========================================================
 # CONFIGURATION & SETUP
 # =========================================================
-st.set_page_config(page_title="Sahay Smart Match", layout="wide")
+st.set_page_config(page_title="Sahay: Live Peer Learning", layout="wide")
 
 # 1. SETUP SUPABASE
 try:
@@ -17,7 +17,7 @@ except Exception as e:
     st.error(f"❌ Supabase Connection Failed. Check Secrets. Error: {e}")
     st.stop()
 
-# 2. SETUP AI (Google Gemini)
+# 2. SETUP AI (Using Stable Model)
 ai_available = False
 if "GOOGLE_API_KEY" in st.secrets:
     try:
@@ -59,8 +59,7 @@ def find_smart_match(role, time_slot, my_subjects):
         score = 0
         person_subjects = person.get("subjects", "").split(", ")
         
-        # Check for Subject Overlap
-        # (If I need Math, and they Teach Math -> +50 Points)
+        # Check for Subject Overlap (+50 Points)
         overlap = set(my_subjects).intersection(set(person_subjects))
         if overlap:
             score += 50
@@ -94,7 +93,7 @@ def create_match_record(mentor, mentee):
                 "match_id": match_id, "mentor": mentor, "mentee": mentee
             }).execute()
             
-            # Update status to 'matched' so they are taken off the market
+            # Update status to 'matched'
             supabase.table("profiles").update({"status": "matched"}).eq("name", mentor).execute()
             supabase.table("profiles").update({"status": "matched"}).eq("name", mentee).execute()
     except Exception as e:
@@ -141,7 +140,7 @@ if st.session_state.stage == 1:
         grade = st.selectbox("Grade", ["Grade 8", "Grade 9", "Grade 10"])
         time_slot = st.selectbox("Time Slot", ["4-5 PM", "5-6 PM"])
         
-    subjects = st.multiselect("Subjects (I need help with / I teach)", ["Math", "Science", "English", "History"])
+    subjects = st.multiselect("Subjects", ["Math", "Science", "English", "History"])
 
     if st.button("Go Live", type="primary"):
         if name and subjects:
@@ -218,7 +217,11 @@ elif st.session_state.stage == 3:
                     is_me = m['sender'] == st.session_state.user_name
                     with st.chat_message("user" if is_me else "assistant"):
                         if m['message']: st.write(f"**{m['sender']}:** {m['message']}")
-                        if m['file_url']: st.image(m['file_url']) if "image" in m.get('file_type','') else st.markdown(f"📎 [Download File]({m['file_url']})")
+                        if m['file_url']: 
+                            if "image" in m.get('file_type', ''):
+                                st.image(m['file_url']) 
+                            else:
+                                st.markdown(f"📎 [Download File]({m['file_url']})")
             else:
                 st.info("Start the conversation!")
 
@@ -263,8 +266,12 @@ elif st.session_state.stage == 3:
             else:
                 try:
                     # Context: Last 3 messages
-                    context = " ".join([m['message'] for m in msgs[-3:] if m['message']])
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    context_msgs = [m['message'] for m in msgs[-3:] if m['message']]
+                    context = " ".join(context_msgs) if context_msgs else "No context yet."
+                    
+                    # USE STABLE MODEL HERE
+                    model = genai.GenerativeModel("gemini-pro")
+                    
                     resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
                     
                     # Inject AI response into chat
