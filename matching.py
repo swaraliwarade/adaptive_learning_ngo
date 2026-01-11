@@ -1,41 +1,32 @@
-# matching.py
-
-"""
-Peer matching logic for Adaptive Learning NGO
-"""
-
-# Sample in-memory data (can be replaced with DB later)
-PEERS = [
-    {"name": "Aarav", "grade": "10", "subject": "Maths"},
-    {"name": "Diya", "grade": "10", "subject": "Science"},
-    {"name": "Kabir", "grade": "9", "subject": "Maths"},
-    {"name": "Ananya", "grade": "11", "subject": "English"},
-    {"name": "Riya", "grade": "12", "subject": "Science"},
-]
-
-
-# -------------------------------------------------
-# CORE MATCHING FUNCTION (original logic)
-# -------------------------------------------------
-def match_peers(grade, subject):
-    """
-    Matches peers based on grade and subject
-    """
+def find_matches(students):
     matches = []
 
-    for peer in PEERS:
-        if peer["grade"] == grade and peer["subject"] == subject:
-            matches.append(peer)
+    for mentor in students:
+        for mentee in students:
+
+            # Do not match a student with themselves
+            if mentor["name"] == mentee["name"]:
+                continue
+
+            score = 0
+
+            # Skill match: mentor strong where mentee is weak
+            for skill in mentor["good_at"]:
+                if skill in mentee["weak_at"]:
+                    score += 2
+
+            # Time slot match
+            if mentor["time"] == mentee["time"]:
+                score += 1
+
+            if score > 0:
+                matches.append({
+                    "Mentor": mentor["name"],
+                    "Mentee": mentee["name"],
+                    "Score": score
+                })
+
+    # Sort by highest score first
+    matches.sort(key=lambda x: x["Score"], reverse=True)
 
     return matches
-
-
-# -------------------------------------------------
-# STREAMLIT-COMPATIBLE WRAPPER (IMPORTANT)
-# -------------------------------------------------
-def get_peer_matches(grade, subject):
-    """
-    Wrapper used by Streamlit app
-    Prevents ImportError and standardizes output
-    """
-    return match_peers(grade, subject)
