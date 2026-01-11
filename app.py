@@ -269,7 +269,7 @@ elif st.session_state.stage == 3:
                 context = " ".join(context_msgs) if context_msgs else "No context yet."
                 
                 # 2. Define Model (Use 1.5-Flash for best Free Tier limits)
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = genai.GenerativeModel("gemini-2.0-flash")
                 
                 try:
                     with st.spinner("AI is thinking..."):
