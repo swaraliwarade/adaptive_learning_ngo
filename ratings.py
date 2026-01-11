@@ -1,31 +1,15 @@
-# ratings.py
+import streamlit as st
 
-"""
-Peer rating and feedback module
-"""
-
-# In-memory storage (can be replaced with DB later)
-RATINGS = []
-
-
-def submit_rating(peer_name, rating, feedback):
-    """
-    Stores peer rating and feedback
-    """
-
-    rating_entry = {
-        "peer_name": peer_name,
-        "rating": rating,
-        "feedback": feedback
-    }
-
-    RATINGS.append(rating_entry)
-
-    return True
-
-
-def get_all_ratings():
-    """
-    Optional helper to fetch all ratings
-    """
-    return RATINGS
+def show_rating_ui():
+    st.header("Rate Your Session")
+    
+    if "rating" not in st.session_state:
+        st.session_state.rating = 0
+        
+    cols = st.columns(5)
+    for i in range(5):
+        star = "⭐" if i < st.session_state.rating else "☆"
+        if cols[i].button(star, key=f"star_{i}"):
+            st.session_state.rating = i + 1
+            
+    st.write(f"Rating: {st.session_state.rating}/5")
