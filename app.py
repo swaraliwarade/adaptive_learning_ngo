@@ -259,32 +259,46 @@ elif st.session_state.stage == 3:
         
         st.divider()
         
-        # AI Helper
+        # AI Helper Button
         if st.button("🤖 Ask AI Hint"):
             if not ai_available:
                 st.error("AI Key missing.")
             else:
+                # 1. Get Context
+                context_msgs = [m['message'] for m in msgs[-3:] if m['message']]
+                context = " ".join(context_msgs) if context_msgs else "No context yet."
+                
+                # 2. Define Model (Use 1.5-Flash for best Free Tier limits)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                
                 try:
-                    # Context: Last 3 messages
-                    context_msgs = [m['message'] for m in msgs[-3:] if m['message']]
-                    context = " ".join(context_msgs) if context_msgs else "No context yet."
-                    
-                    # 🔴 UPDATED TO YOUR AVAILABLE MODEL 🔴
-                    model = genai.GenerativeModel("gemini-2.0-flash")
-                    
-                    resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
-                    
-                    # Inject AI response into chat
+                    with st.spinner("AI is thinking..."):
+                        # 3. Generate
+                        resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
+                        ai_text = resp.text
+
+                except Exception as e:
+                    # 4. Handle Rate Limits (The 429 Error)
+                    if "429" in str(e) or "ResourceExhausted" in str(e):
+                        st.warning("⚠️ AI is busy (Rate Limit). Retrying in 5 seconds...")
+                        time.sleep(5) # Wait for quota to reset
+                        try:
+                            # Retry once
+                            resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
+                            ai_text = resp.text
+                        except:
+                            st.error("AI is currently overloaded. Please wait a minute.")
+                            ai_text = None
+                    else:
+                        st.error(f"AI Error: {e}")
+                        ai_text = None
+
+                # 5. Save to Database (Only if we got a response)
+                if ai_text:
                     supabase.table("messages").insert({
                         "match_id": st.session_state.match_id,
                         "sender": "AI Bot",
-                        "message": f"🤖 {resp.text}",
+                        "message": f"🤖 {ai_text}",
                         "file_url": None
                     }).execute()
                     st.rerun()
-                except Exception as e:
-                    st.error(f"AI Error: {e}")
-
-        if st.button("End Session"):
-            st.session_state.stage = 1
-            st.rerun()
