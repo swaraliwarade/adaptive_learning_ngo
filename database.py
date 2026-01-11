@@ -5,6 +5,9 @@ cursor = conn.cursor()
 
 def init_db():
 
+    # -------------------------
+    # AUTH USERS (LOGIN)
+    # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS auth_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -14,6 +17,9 @@ def init_db():
     )
     """)
 
+    # -------------------------
+    # USER PROFILES (MATCHMAKING)
+    # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
         user_id INTEGER,
@@ -27,10 +33,15 @@ def init_db():
     )
     """)
 
+    # -------------------------
+    # SESSION RATINGS (STREAK + LEADERBOARD)
+    # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ratings (
         mentor TEXT,
-        rating INTEGER
+        mentee TEXT,
+        rating INTEGER,
+        session_date DATE
     )
     """)
 
