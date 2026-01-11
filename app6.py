@@ -173,7 +173,7 @@ if page == "Dashboard":
 # =========================
 elif page == "Matchmaking":
 
-    st.title("Peer Learning Matchmaking System")
+    st.title("Sahay - Peer Learning Matchmaking System")
     mentors, mentees = load_users()
 
     # -------------------------
