@@ -1,7 +1,10 @@
 import streamlit as st
 import time
 from datetime import date, timedelta
-from database import cursor
+from database import cursor, conn
+
+SUBJECTS = ["Mathematics", "English", "Science"]
+TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
 
 # =========================================================
 # HELPERS
@@ -50,10 +53,61 @@ def dashboard_page():
     """, (st.session_state.user_id,))
     profile = cursor.fetchone()
 
+    # =====================================================
+    # PROFILE SETUP (IF NOT EXISTS)
+    # =====================================================
     if not profile:
-        st.warning("Please complete your profile to unlock your dashboard.")
-        return
+        st.markdown("""
+        <div class="card">
+            <h3>Complete Your Profile</h3>
+            <p>
+                Before we can match you with the right peers,
+                please tell us about your grade, subjects, and availability.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
+        with st.form("profile_setup"):
+            role = st.radio("Role", ["Student", "Teacher"], horizontal=True)
+            grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)])
+            time_slot = st.selectbox("Available Time Slot", TIME_SLOTS)
+
+            strong, weak, teaches = [], [], []
+
+            if role == "Student":
+                weak = st.multiselect("Subjects you need help with", SUBJECTS)
+                strong = st.multiselect("Subjects you are good at", SUBJECTS)
+            else:
+                teaches = st.multiselect("Subjects you can teach", SUBJECTS)
+
+            submitted = st.form_submit_button("Save Profile")
+
+        if submitted:
+            cursor.execute("DELETE FROM profiles WHERE user_id = ?", (st.session_state.user_id,))
+            cursor.execute("""
+                INSERT INTO profiles
+                (user_id, role, grade, class, time, strong_subjects, weak_subjects, teaches)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                st.session_state.user_id,
+                role,
+                grade,
+                int(grade.split()[-1]),
+                time_slot,
+                ",".join(strong),
+                ",".join(weak),
+                ",".join(teaches)
+            ))
+            conn.commit()
+
+            st.success("Profile saved successfully.")
+            st.rerun()
+
+        return  # STOP dashboard until profile exists
+
+    # =====================================================
+    # DASHBOARD CONTENT (PROFILE EXISTS)
+    # =====================================================
     role, grade, time_slot, strong, weak, teaches = profile
     subjects = (teaches or strong or weak or "—").replace(",", ", ")
 
@@ -105,50 +159,20 @@ def dashboard_page():
     )
 
     # -----------------------------------------------------
-    # STATS SECTION
+    # STATS
     # -----------------------------------------------------
     st.markdown("### Your Progress")
 
     c1, c2, c3, c4 = st.columns(4)
 
     with st.spinner("Loading insights..."):
-        time.sleep(0.4)
+        time.sleep(0.3)
 
-    with c1:
-        st.markdown(f"""
-        <div class="card" style="background:#ecfeff;">
-            <h2>{streak}</h2>
-            <p>Day Streak</p>
-        </div>
-        """, unsafe_allow_html=True)
+    c1.metric("Day Streak", streak)
+    c2.metric("Leaderboard Rank", f"#{leaderboard_rank}")
+    c3.metric("Sessions Completed", total_sessions)
+    c4.metric("Average Rating", avg_rating)
 
-    with c2:
-        st.markdown(f"""
-        <div class="card" style="background:#f0fdf4;">
-            <h2>#{leaderboard_rank}</h2>
-            <p>Leaderboard Rank</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        st.markdown(f"""
-        <div class="card" style="background:#fff7ed;">
-            <h2>{total_sessions}</h2>
-            <p>Sessions Completed</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c4:
-        st.markdown(f"""
-        <div class="card" style="background:#fdf4ff;">
-            <h2>{avg_rating}</h2>
-            <p>Average Rating</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # -----------------------------------------------------
-    # PROGRESS BAR
-    # -----------------------------------------------------
     st.markdown("**Consistency Goal (30 days)**")
     st.progress(min(streak / 30, 1.0))
 
@@ -160,13 +184,12 @@ def dashboard_page():
     st.markdown("### Recent Sessions")
 
     if rows:
-        history = []
-        for r in rows[-10:][::-1]:
-            history.append({
-                "Partner": r[0],
-                "Rating": r[1],
-                "Date": r[2].strftime("%d %b %Y")
-            })
+        history = [{
+            "Partner": r[0],
+            "Rating": r[1],
+            "Date": r[2].strftime("%d %b %Y")
+        } for r in rows[-10:][::-1]]
+
         st.dataframe(history, use_container_width=True)
     else:
         st.info("No sessions yet — start matchmaking to begin your journey.")
