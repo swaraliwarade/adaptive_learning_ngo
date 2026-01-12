@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from database import cursor, conn
 from ai_helper import ask_ai
 
-
 MATCH_THRESHOLD = 30
 SESSION_TIMEOUT_MIN = 60
 
@@ -62,6 +61,7 @@ def calculate_match_score(user1, user2):
     score = 0
     reasons = []
 
+    # Student ↔ Student
     if user1["role"] == "Student" and user2["role"] == "Student":
         for s in user1["weak"]:
             if s and s in user2["strong"]:
@@ -71,6 +71,8 @@ def calculate_match_score(user1, user2):
             if s and s in user1["strong"]:
                 score += 25
                 reasons.append(f"{user1['name']} strong in {s}")
+
+    # Teacher ↔ Student
     else:
         mentor = user1 if user1["role"] == "Teacher" else user2
         mentee = user2 if mentor == user1 else user1
@@ -156,7 +158,7 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    # ================= LIVE CHAT (MOBILE + LAPTOP SAFE) =================
+    # ================= LIVE SESSION =================
     if match_id:
         st.subheader("Live Learning Room")
 
@@ -171,6 +173,7 @@ def matchmaking_page():
         if partner:
             st.info(f"Paired with **{partner[0]}**")
 
+        # -------- CHAT DISPLAY --------
         chat_box = st.container(height=400)
         with chat_box:
             for sender, msg in load_messages(match_id):
@@ -179,7 +182,7 @@ def matchmaking_page():
                 else:
                     st.markdown(f"**{sender}:** {msg}")
 
-        # -------- SEND MESSAGE (FORM ONLY) --------
+        # -------- SEND MESSAGE --------
         with st.form("chat_form", clear_on_submit=True):
             message = st.text_input("Type your message")
             send = st.form_submit_button("Send")
@@ -188,6 +191,37 @@ def matchmaking_page():
                 send_message(match_id, current_user["name"], message)
                 st.rerun()
 
+        # -------- ASK AI (SEPARATE) --------
+        st.divider()
+        st.subheader("Ask AI Tutor")
+
+        with st.form("ai_form", clear_on_submit=True):
+            ai_question = st.text_area(
+                "Ask your doubt here",
+                placeholder="E.g. Explain Newton's third law",
+                height=100
+            )
+            ask_ai_btn = st.form_submit_button("Ask AI")
+
+            if ask_ai_btn and ai_question.strip():
+                # Save user question
+                send_message(
+                    match_id,
+                    current_user["name"],
+                    f"🧠 AI Doubt: {ai_question}"
+                )
+
+                # AI response
+                with st.spinner("AI is thinking..."):
+                    ai_reply = ask_ai(
+                        ai_question,
+                        grade=current_user["grade"]
+                    )
+
+                send_message(match_id, "AI Tutor", ai_reply)
+                st.rerun()
+
+        # -------- END SESSION --------
         if st.button("End Session"):
             cursor.execute("""
                 UPDATE profiles
@@ -216,4 +250,3 @@ def matchmaking_page():
             st.rerun()
         else:
             st.warning("No suitable match right now.")
-
