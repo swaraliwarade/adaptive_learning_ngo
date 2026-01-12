@@ -1,5 +1,4 @@
 import streamlit as st
-import time
 from datetime import datetime, timedelta
 from database import cursor, conn
 from ai_helper import ask_ai
@@ -59,18 +58,15 @@ def load_profiles():
 # =========================================================
 def calculate_match_score(user1, user2):
     score = 0
-    reasons = []
 
     # Student ↔ Student
     if user1["role"] == "Student" and user2["role"] == "Student":
         for s in user1["weak"]:
             if s and s in user2["strong"]:
                 score += 25
-                reasons.append(f"{user2['name']} strong in {s}")
         for s in user2["weak"]:
             if s and s in user1["strong"]:
                 score += 25
-                reasons.append(f"{user1['name']} strong in {s}")
 
     # Teacher ↔ Student
     else:
@@ -79,23 +75,21 @@ def calculate_match_score(user1, user2):
         for s in mentee["weak"]:
             if s and s in mentor["strong"]:
                 score += 30
-                reasons.append(f"Strong in {s}")
 
     if user1["grade"] == user2["grade"]:
         score += 10
-        reasons.append("Same grade")
     if user1["time"] == user2["time"]:
         score += 10
-        reasons.append("Same time slot")
 
-    return score, reasons
+    return score
 
 # =========================================================
 # FIND MATCH
 # =========================================================
 def find_best_match(current_user, all_users):
     cleanup_stale_profiles()
-    best, best_score, best_reasons = None, 0, []
+    best = None
+    best_score = 0
 
     for other in all_users:
         if other["user_id"] == current_user["user_id"]:
@@ -103,13 +97,15 @@ def find_best_match(current_user, all_users):
         if current_user["role"] == "Teacher" and other["role"] == "Teacher":
             continue
 
-        score, reasons = calculate_match_score(current_user, other)
+        score = calculate_match_score(current_user, other)
         if score > best_score:
-            best, best_score, best_reasons = other, score, reasons
+            best = other
+            best_score = score
 
     if best_score >= MATCH_THRESHOLD:
-        return best, best_score, best_reasons
-    return None, 0, []
+        return best, best_score
+
+    return None, 0
 
 # =========================================================
 # CHAT HELPERS
@@ -177,10 +173,7 @@ def matchmaking_page():
         chat_box = st.container(height=400)
         with chat_box:
             for sender, msg in load_messages(match_id):
-                if sender == current_user["name"]:
-                    st.markdown(f"**You:** {msg}")
-                else:
-                    st.markdown(f"**{sender}:** {msg}")
+                st.markdown(f"**{sender}:** {msg}")
 
         # -------- SEND MESSAGE --------
         with st.form("chat_form", clear_on_submit=True):
@@ -191,32 +184,26 @@ def matchmaking_page():
                 send_message(match_id, current_user["name"], message)
                 st.rerun()
 
-        # -------- ASK AI (SEPARATE) --------
+        # -------- SIMPLE AI CHATBOT --------
         st.divider()
-        st.subheader("Ask AI Tutor")
+        st.subheader("AI Tutor (Ask your doubt)")
 
         with st.form("ai_form", clear_on_submit=True):
-            ai_question = st.text_area(
-                "Ask your doubt here",
-                placeholder="E.g. Explain Newton's third law",
-                height=100
+            ai_question = st.text_input(
+                "Ask the AI tutor",
+                placeholder="e.g. Explain photosynthesis"
             )
-            ask_ai_btn = st.form_submit_button("Ask AI")
+            ask = st.form_submit_button("Ask AI")
 
-            if ask_ai_btn and ai_question.strip():
-                # Save user question
+            if ask and ai_question.strip():
                 send_message(
                     match_id,
                     current_user["name"],
-                    f"🧠 AI Doubt: {ai_question}"
+                    f"🤖 AI Question: {ai_question}"
                 )
 
-                # AI response
-                with st.spinner("AI is thinking..."):
-                    ai_reply = ask_ai(
-                        ai_question,
-                        grade=current_user["grade"]
-                    )
+                with st.spinner("AI is replying..."):
+                    ai_reply = ask_ai(ai_question)
 
                 send_message(match_id, "AI Tutor", ai_reply)
                 st.rerun()
@@ -236,7 +223,7 @@ def matchmaking_page():
     # ================= FIND MATCH =================
     if st.button("Find Best Match", use_container_width=True):
         all_users = load_profiles()
-        match, score, reasons = find_best_match(current_user, all_users)
+        match, score = find_best_match(current_user, all_users)
 
         if match:
             match_id = f"{current_user['user_id']}-{match['user_id']}"
