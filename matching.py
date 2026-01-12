@@ -3,7 +3,9 @@ import time
 from datetime import datetime, timedelta
 from database import cursor, conn
 
-
+# =========================================================
+# CONFIG
+# =========================================================
 MATCH_THRESHOLD = 30
 SESSION_TIMEOUT_MIN = 60
 
@@ -11,7 +13,7 @@ SESSION_TIMEOUT_MIN = 60
 # CLEANUP STALE USERS
 # =========================================================
 def cleanup_stale_profiles():
-    expiry = (datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MIN))\
+    expiry = (datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MIN)) \
         .strftime("%Y-%m-%d %H:%M:%S")
 
     cursor.execute("""
@@ -147,7 +149,6 @@ def send_message(match_id, sender, message):
 # =========================================================
 def matchmaking_page():
 
-    # Load current profile
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
         FROM profiles
@@ -156,7 +157,7 @@ def matchmaking_page():
     profile = cursor.fetchone()
 
     if not profile:
-        st.warning("Complete your profile first.")
+        st.warning("Please complete your profile first.")
         return
 
     role, grade, time_val, strong, weak, teaches, match_id = profile
@@ -171,58 +172,58 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-# =====================================================
-# LIVE CHAT MODE
-# =====================================================
-if match_id:
+    # =====================================================
+    # LIVE CHAT MODE
+    # =====================================================
+    if match_id:
 
-    st.subheader("Live Learning Room")
+        st.subheader("Live Learning Room")
 
-    # 🔁 AUTO REFRESH every 2 seconds (PURE STREAMLIT)
-    if "last_refresh" not in st.session_state:
-        st.session_state.last_refresh = time.time()
+        # 🔁 Auto refresh every 2 seconds
+        if "last_refresh" not in st.session_state:
+            st.session_state.last_refresh = time.time()
 
-    if time.time() - st.session_state.last_refresh > 2:
-        st.session_state.last_refresh = time.time()
-        st.experimental_rerun()
-
-    cursor.execute("""
-        SELECT a.name
-        FROM profiles p
-        JOIN auth_users a ON a.id = p.user_id
-        WHERE p.match_id=? AND p.user_id!=?
-    """, (match_id, current_user["user_id"]))
-    partner = cursor.fetchone()
-
-    st.info(f"Paired with **{partner[0]}**")
-
-    chat_box = st.container(height=400)
-    with chat_box:
-        for sender, msg in load_messages(match_id):
-            if sender == current_user["name"]:
-                st.markdown(f"**You:** {msg}")
-            else:
-                st.markdown(f"**{sender}:** {msg}")
-
-    message = st.text_input("Message", key="chat_input")
-
-    if st.button("Send"):
-        if message.strip():
-            send_message(match_id, current_user["name"], message)
-            st.session_state.chat_input = ""
+        if time.time() - st.session_state.last_refresh > 2:
+            st.session_state.last_refresh = time.time()
             st.experimental_rerun()
 
-    if st.button("End Session"):
         cursor.execute("""
-            UPDATE profiles
-            SET status='waiting', match_id=NULL
-            WHERE match_id=?
-        """, (match_id,))
-        conn.commit()
-        st.experimental_rerun()
+            SELECT a.name
+            FROM profiles p
+            JOIN auth_users a ON a.id = p.user_id
+            WHERE p.match_id=? AND p.user_id!=?
+        """, (match_id, current_user["user_id"]))
+        partner = cursor.fetchone()
 
-    return
+        if partner:
+            st.info(f"Paired with **{partner[0]}**")
 
+        chat_box = st.container(height=400)
+        with chat_box:
+            for sender, msg in load_messages(match_id):
+                if sender == current_user["name"]:
+                    st.markdown(f"**You:** {msg}")
+                else:
+                    st.markdown(f"**{sender}:** {msg}")
+
+        message = st.text_input("Message", key="chat_input")
+
+        if st.button("Send"):
+            if message.strip():
+                send_message(match_id, current_user["name"], message)
+                st.session_state.chat_input = ""
+                st.experimental_rerun()
+
+        if st.button("End Session"):
+            cursor.execute("""
+                UPDATE profiles
+                SET status='waiting', match_id=NULL
+                WHERE match_id=?
+            """, (match_id,))
+            conn.commit()
+            st.experimental_rerun()
+
+        return
 
     # =====================================================
     # FIND MATCH
@@ -247,8 +248,6 @@ if match_id:
                 st.write("•", r)
 
             time.sleep(1)
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.warning("No suitable match right now. Try again later.")
-
-
