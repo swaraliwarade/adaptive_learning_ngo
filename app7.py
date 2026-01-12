@@ -7,6 +7,8 @@ from practice import practice_page
 from admin import admin_page
 from auth import auth_page
 from dashboard import dashboard_page
+from matching import matchmaking_page
+
 
 # ---- DATABASE ----
 from database import init_db, cursor, conn
@@ -223,12 +225,7 @@ if page == "Dashboard":
     dashboard_page()
 
 elif page == "Matchmaking":
-    st.markdown("""
-    <div class="card">
-        <h2>Peer Learning Matchmaking</h2>
-        <p>Find the best mentor based on compatibility.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    matchmaking_page()
 
 elif page == "Learning Materials":
     materials_page()
@@ -242,3 +239,4 @@ elif page == "Admin":
         admin_page()
     else:
         st.warning("Unauthorized access")
+
