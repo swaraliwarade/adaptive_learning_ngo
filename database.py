@@ -6,7 +6,7 @@ cursor = conn.cursor()
 def init_db():
 
     # -------------------------
-    # AUTH USERS (LOGIN)
+    # AUTH USERS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS auth_users (
@@ -18,23 +18,38 @@ def init_db():
     """)
 
     # -------------------------
-    # USER PROFILES (MATCHMAKING)
+    # PROFILES (MATCHMAKING)
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
-        user_id INTEGER,
+        user_id INTEGER UNIQUE,
         role TEXT,
         grade TEXT,
         class INTEGER,
         time TEXT,
         strong_subjects TEXT,
         weak_subjects TEXT,
-        teaches TEXT
+        teaches TEXT,
+        status TEXT DEFAULT 'waiting',
+        created_at TEXT DEFAULT (datetime('now'))
     )
     """)
 
     # -------------------------
-    # SESSION RATINGS (STREAK + LEADERBOARD)
+    # CHAT MESSAGES
+    # -------------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT,
+        sender TEXT,
+        message TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """)
+
+    # -------------------------
+    # RATINGS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ratings (
