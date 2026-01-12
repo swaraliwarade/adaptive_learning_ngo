@@ -2,7 +2,6 @@ import streamlit as st
 import time
 from datetime import datetime, timedelta
 from database import cursor, conn
-from streamlit_autorefresh import st_autorefresh
 
 
 MATCH_THRESHOLD = 30
@@ -177,8 +176,15 @@ def matchmaking_page():
 # =====================================================
 if match_id:
 
-    # 🔁 AUTO REFRESH every 2 seconds
-    st_autorefresh(interval=2000, key="chat_refresh")
+    st.subheader("Live Learning Room")
+
+    # 🔁 AUTO REFRESH every 2 seconds (PURE STREAMLIT)
+    if "last_refresh" not in st.session_state:
+        st.session_state.last_refresh = time.time()
+
+    if time.time() - st.session_state.last_refresh > 2:
+        st.session_state.last_refresh = time.time()
+        st.experimental_rerun()
 
     cursor.execute("""
         SELECT a.name
@@ -188,7 +194,6 @@ if match_id:
     """, (match_id, current_user["user_id"]))
     partner = cursor.fetchone()
 
-    st.subheader("Live Learning Room")
     st.info(f"Paired with **{partner[0]}**")
 
     chat_box = st.container(height=400)
@@ -199,13 +204,13 @@ if match_id:
             else:
                 st.markdown(f"**{sender}:** {msg}")
 
-    msg = st.text_input("Message", key="chat_input")
+    message = st.text_input("Message", key="chat_input")
 
     if st.button("Send"):
-        if msg.strip():
-            send_message(match_id, current_user["name"], msg)
-            st.session_state.chat_input = ""  # clear box
-            st.rerun()
+        if message.strip():
+            send_message(match_id, current_user["name"], message)
+            st.session_state.chat_input = ""
+            st.experimental_rerun()
 
     if st.button("End Session"):
         cursor.execute("""
@@ -214,7 +219,7 @@ if match_id:
             WHERE match_id=?
         """, (match_id,))
         conn.commit()
-        st.rerun()
+        st.experimental_rerun()
 
     return
 
@@ -245,4 +250,5 @@ if match_id:
             st.rerun()
         else:
             st.warning("No suitable match right now. Try again later.")
+
 
