@@ -39,8 +39,10 @@ def score(u1, u2):
     s = 0
     s += len(set(u1["weak"]) & set(u2["strong"])) * 25
     s += len(set(u2["weak"]) & set(u1["strong"])) * 25
-    if u1["grade"] == u2["grade"]: s += 10
-    if u1["time"] == u2["time"]: s += 10
+    if u1["grade"] == u2["grade"]:
+        s += 10
+    if u1["time"] == u2["time"]:
+        s += 10
     return s
 
 def find_best(current, users):
@@ -57,40 +59,57 @@ def find_best(current, users):
 # CHAT + FILE HELPERS
 # =========================================================
 def load_msgs(mid):
-    cursor.execute("SELECT sender, message FROM messages WHERE match_id=?", (mid,))
-    return cursor.fetchall()
-
-def send_msg(mid, s, m):
     cursor.execute(
-        "INSERT INTO messages(match_id, sender, message) VALUES (?, ?, ?)",
-        (mid, s, m)
-    )
-    conn.commit()
-
-def save_file(mid, u, f):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{mid}_{f.name}"
-    with open(path, "wb") as out:
-        out.write(f.getbuffer())
-    cursor.execute("""
-        INSERT INTO session_files(match_id, uploader, filename, filepath)
-        VALUES (?, ?, ?, ?)
-    """, (mid, u, f.name, path))
-    conn.commit()
-
-def load_files(mid):
-    cursor.execute(
-        "SELECT uploader, filename, filepath FROM session_files WHERE match_id=?",
+        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
         (mid,)
     )
     return cursor.fetchall()
+
+def send_msg(mid, sender, message):
+    cursor.execute(
+        "INSERT INTO messages (match_id, sender, message) VALUES (?, ?, ?)",
+        (mid, sender, message)
+    )
+    conn.commit()
+
+def save_file(mid, uploader, file):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
+    with open(path, "wb") as out:
+        out.write(file.getbuffer())
+
+    cursor.execute("""
+        INSERT INTO session_files (match_id, uploader, filename, filepath)
+        VALUES (?, ?, ?, ?)
+    """, (mid, uploader, file.name, path))
+    conn.commit()
+
+def load_files(mid):
+    cursor.execute("""
+        SELECT uploader, filename, filepath
+        FROM session_files
+        WHERE match_id=?
+        ORDER BY uploaded_at
+    """, (mid,))
+    return cursor.fetchall()
+
+# =========================================================
+# END SESSION (NEW)
+# =========================================================
+def end_session(match_id):
+    cursor.execute("""
+        UPDATE profiles
+        SET status='waiting', match_id=NULL
+        WHERE match_id=?
+    """, (match_id,))
+    conn.commit()
 
 # =========================================================
 # PAGE
 # =========================================================
 def matchmaking_page():
 
-    # ---------- PAGE HEADER ----------
+    # ---------- HEADER ----------
     st.markdown("""
     <div style="
         padding:1.5rem;
@@ -100,7 +119,9 @@ def matchmaking_page():
         margin-bottom:1.5rem;
     ">
         <h2 style="margin:0;">Peer Learning Session</h2>
-        <p style="margin:0;opacity:0.9;">Match, learn, and collaborate in real time</p>
+        <p style="margin:0;opacity:0.9;">
+            Match, learn, and collaborate in real time
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -128,10 +149,10 @@ def matchmaking_page():
     }
 
     # =====================================================
-    # AI TUTOR
+    # AI ASSISTANT
     # =====================================================
     st.markdown("### AI Study Assistant")
-    with st.form("ai"):
+    with st.form("ai_form", clear_on_submit=True):
         q = st.text_input("Ask a concept, definition, or example")
         if st.form_submit_button("Get Help") and q:
             st.success(ask_ai(q))
@@ -160,12 +181,12 @@ def matchmaking_page():
                 background:#ffffff;
                 margin-top:1rem;
             ">
-                <h4 style="margin-bottom:0.5rem;">Suggested Match</h4>
-                <p style="margin:0;"><b>Name:</b> {m['name']}</p>
-                <p style="margin:0;"><b>Role:</b> {m['role']}</p>
-                <p style="margin:0;"><b>Grade:</b> {m['grade']}</p>
-                <p style="margin:0;"><b>Time Slot:</b> {m['time']}</p>
-                <p style="margin-top:0.5rem;"><b>Compatibility Score:</b> {st.session_state.proposed_score}</p>
+                <h4>Suggested Match</h4>
+                <p><b>Name:</b> {m['name']}</p>
+                <p><b>Role:</b> {m['role']}</p>
+                <p><b>Grade:</b> {m['grade']}</p>
+                <p><b>Time Slot:</b> {m['time']}</p>
+                <p><b>Compatibility Score:</b> {st.session_state.proposed_score}</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -205,10 +226,10 @@ def matchmaking_page():
     st.markdown("### Session Chat")
     chat_box = st.container(height=320)
     with chat_box:
-        for s, m in load_msgs(match_id):
-            st.markdown(f"**{s}:** {m}")
+        for sender, msg in load_msgs(match_id):
+            st.markdown(f"**{sender}:** {msg}")
 
-    with st.form("chat"):
+    with st.form("chat_form", clear_on_submit=True):
         msg = st.text_input("Type your message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, user["name"], msg)
@@ -218,8 +239,7 @@ def matchmaking_page():
 
     # ---------- FILE SHARING ----------
     st.markdown("### Shared Resources")
-
-    with st.form("files"):
+    with st.form("file_form", clear_on_submit=True):
         f = st.file_uploader("Upload a document or image")
         if st.form_submit_button("Upload") and f:
             save_file(match_id, user["name"], f)
@@ -233,3 +253,17 @@ def matchmaking_page():
                 file_name=n,
                 use_container_width=True
             )
+
+    st.divider()
+
+    # ---------- END SESSION ----------
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button(
+            "End Session",
+            use_container_width=True,
+            help="End the learning session for both participants"
+        ):
+            end_session(match_id)
+            st.success("Session ended successfully.")
+            st.rerun()
