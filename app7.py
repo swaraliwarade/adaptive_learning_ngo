@@ -7,7 +7,6 @@ from practice import practice_page
 from admin import admin_page
 from auth import auth_page
 from dashboard import dashboard_page
-from matching import find_matches
 
 # ---- DATABASE ----
 from database import init_db, cursor, conn
@@ -72,25 +71,25 @@ section[data-testid="stSidebar"] {
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 0.75rem;
     padding: 0.65rem 0.9rem;
     margin-bottom: 0.4rem;
     border-radius: 12px;
     font-weight: 500;
-    transition: 0.2s ease;
+    transition: all 0.2s ease;
 }
 .nav-item:hover {
     background: rgba(99,102,241,0.12);
 }
 .nav-active {
-    background: rgba(99,102,241,0.2);
+    background: rgba(99,102,241,0.22);
     border-left: 4px solid #4f46e5;
 }
 
 /* SVG icon base */
 .nav-icon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     background-color: currentColor;
     mask-size: contain;
     mask-repeat: no-repeat;
@@ -100,21 +99,31 @@ section[data-testid="stSidebar"] {
     -webkit-mask-position: center;
 }
 
-/* SVG icons */
+/* ---------- BETTER SVG ICONS ---------- */
+
+/* Dashboard – analytics tiles */
 .icon-dashboard {
-    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 3h7v7H3V3zm11 0h7v11h-7V3zM3 14h11v7H3v-7zm14 7h4v-4h-4v4z'/></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='3' width='7' height='7' rx='2'/><rect x='14' y='3' width='7' height='11' rx='2'/><rect x='3' y='14' width='11' height='7' rx='2'/></svg>");
 }
+
+/* Matchmaking – people connection */
 .icon-match {
-    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M10 13a5 5 0 017 0l2 2m-6-6a5 5 0 00-7 0l-2 2'/></svg>\");
+    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='7' cy='8' r='3'/><circle cx='17' cy='8' r='3'/><path d='M2 20c0-3 3-5 5-5'/><path d='M22 20c0-3-3-5-5-5'/><path d='M9 13h6'/></svg>\");
 }
+
+/* Materials – stacked books */
 .icon-materials {
-    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14'/></svg>\");
+    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='14' height='4' rx='1'/><rect x='3' y='10' width='18' height='4' rx='1'/><rect x='3' y='16' width='16' height='4' rx='1'/></svg>\");
 }
+
+/* Practice – pencil/edit */
 .icon-practice {
-    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 20l9-5-9-5-9 5 9 5z'/></svg>\");
+    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 21l3-1 12-12-2-2L4 18l-1 3z'/><path d='M14 4l2 2'/></svg>\");
 }
+
+/* Admin – shield/settings */
 .icon-admin {
-    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 15a3 3 0 100-6 3 3 0 000 6z'/></svg>\");
+    mask-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 3l8 4v5c0 5-3.5 9-8 9s-8-4-8-9V7l8-4z'/><circle cx='12' cy='13' r='2'/></svg>\");
 }
 
 /* Cards */
