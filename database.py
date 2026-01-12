@@ -89,3 +89,15 @@ def init_db():
     """)
 
     conn.commit()
+
+# -------------------------
+# USER STREAKS (PERSISTENT)
+# -------------------------
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_streaks (
+    user_id INTEGER PRIMARY KEY,
+    streak INTEGER DEFAULT 0,
+    last_active DATE
+)
+""")
+
