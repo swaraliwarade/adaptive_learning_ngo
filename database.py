@@ -18,7 +18,7 @@ def init_db():
     """)
 
     # -------------------------
-    # PROFILES (MATCHMAKING)
+    # PROFILES
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
@@ -31,8 +31,8 @@ def init_db():
         weak_subjects TEXT,
         teaches TEXT,
         status TEXT DEFAULT 'waiting',
-        created_at TEXT DEFAULT (datetime('now')),
-        match_id TEXT
+        match_id TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
     )
     """)
 
@@ -50,6 +50,20 @@ def init_db():
     """)
 
     # -------------------------
+    # SESSION FILE SHARING (NEW)
+    # -------------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS session_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT,
+        uploader TEXT,
+        filename TEXT,
+        filepath TEXT,
+        uploaded_at TEXT DEFAULT (datetime('now'))
+    )
+    """)
+
+    # -------------------------
     # RATINGS
     # -------------------------
     cursor.execute("""
@@ -60,13 +74,5 @@ def init_db():
         session_date DATE
     )
     """)
-
-    # -------------------------
-    # SAFE MIGRATION (FOR OLD DBS)
-    # -------------------------
-    try:
-        cursor.execute("ALTER TABLE profiles ADD COLUMN match_id TEXT")
-    except:
-        pass  # column already exists
 
     conn.commit()
