@@ -37,6 +37,9 @@ def init_streak():
 
 # ---------- UPDATE ----------
 def update_streak():
+    # ✅ SAFETY: ensure session vars exist
+    init_streak()
+
     today = date.today()
 
     if st.session_state.last_active != today:
@@ -50,10 +53,11 @@ def update_streak():
                 st.session_state.streak = 1
 
         st.session_state.last_active = today
-        return True  # streak updated today
-    return False  # already counted today
+        return True
 
-# ---------- UI ----------
+    return False
+
+# ---------- UI HELPERS ----------
 def get_streak_level(streak):
     level = "Beginner 🌱"
     for days, name in STREAK_LEVELS:
@@ -70,6 +74,7 @@ def get_message(streak):
     return msg
 
 def render_streak_ui():
+    init_streak()
     streak = st.session_state.streak
 
     st.subheader("🌱 Your Learning Plant")
@@ -77,12 +82,10 @@ def render_streak_ui():
     st.markdown(f"**🏅 Level:** {get_streak_level(streak)}")
     st.info(get_message(streak))
 
-    # Progress bar (weekly)
     progress = min(streak % 7 or 7, 7)
     st.progress(progress / 7)
     st.caption(f"Weekly Progress: {progress}/7 days")
 
-    # Unlocks
     if streak in UNLOCKS and streak not in st.session_state.unlocks_seen:
         st.success(UNLOCKS[streak])
         st.session_state.unlocks_seen.add(streak)
