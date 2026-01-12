@@ -1,57 +1,46 @@
 # matching.py
 import streamlit as st
-
-# -------------------------------------------------
-# SAMPLE USERS (replace with DB later)
-# -------------------------------------------------
-USERS = [
-    {
-        "name": "Aarav",
-        "role": "Mentor",
-        "grade": "10",
-        "time": "5-6 PM",
-        "strong": ["Mathematics"],
-        "weak": []
-    },
-    {
-        "name": "Diya",
-        "role": "Student",
-        "grade": "10",
-        "time": "5-6 PM",
-        "strong": [],
-        "weak": ["Mathematics"]
-    },
-    {
-        "name": "Kabir",
-        "role": "Mentor",
-        "grade": "9",
-        "time": "4-5 PM",
-        "strong": ["Science"],
-        "weak": []
-    },
-    {
-        "name": "Ananya",
-        "role": "Student",
-        "grade": "11",
-        "time": "6-7 PM",
-        "strong": [],
-        "weak": ["English"]
-    },
-    {
-        "name": "Riya",
-        "role": "Mentor",
-        "grade": "11",
-        "time": "6-7 PM",
-        "strong": ["English"],
-        "weak": []
-    }
-]
+from database import cursor
 
 SUBJECTS = ["Mathematics", "English", "Science"]
-TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
 
 # -------------------------------------------------
-# CORE MATCH SCORE FUNCTION
+# LOAD ALL PROFILES FROM DB
+# -------------------------------------------------
+def load_profiles():
+    cursor.execute("""
+        SELECT 
+            a.name,
+            p.role,
+            p.grade,
+            p.time,
+            p.strong_subjects,
+            p.weak_subjects,
+            p.teaches
+        FROM profiles p
+        JOIN auth_users a ON a.id = p.user_id
+    """)
+    rows = cursor.fetchall()
+
+    users = []
+    for r in rows:
+        users.append({
+            "name": r[0],
+            "role": r[1],                     # Student / Teacher
+            "grade": r[2],                    # Grade 10
+            "time": r[3],                     # 5-6 PM
+            "strong": (
+                r[6].split(",") if r[6] else  # teaches (for mentors)
+                r[4].split(",") if r[4] else []
+            ),
+            "weak": r[5].split(",") if r[5] else []
+        })
+
+    return users
+
+
+# -------------------------------------------------
+# COMPATIBILITY SCORING
 # -------------------------------------------------
 def calculate_compatibility(mentor, mentee):
     score = 0
@@ -73,36 +62,31 @@ def calculate_compatibility(mentor, mentee):
         score += 15
         reasons.append("Same time slot")
 
-    # 4️⃣ Extra subject overlap
-    common = set(mentor["strong"]) & set(mentee["weak"])
-    if common:
-        score += 10
-
     return score, reasons
 
 
 # -------------------------------------------------
-# MATCHMAKING ENGINE
+# FIND MATCHES FOR CURRENT USER
 # -------------------------------------------------
-def find_matches(current_user):
+def find_matches(current_user, all_users):
     matches = []
 
-    for other in USERS:
-        # Do not match with self
+    for other in all_users:
+        # Skip self
         if other["name"] == current_user["name"]:
             continue
 
         # Opposite roles only
-        if current_user["role"] == other["role"]:
+        if other["role"] == current_user["role"]:
             continue
 
-        # Define mentor & mentee
-        mentor = other if other["role"] == "Mentor" else current_user
-        mentee = current_user if current_user["role"] == "Mentor" else other
+        # Assign mentor / mentee correctly
+        mentor = other if other["role"] in ["Teacher"] else current_user
+        mentee = current_user if current_user["role"] in ["Student"] else other
 
         score, reasons = calculate_compatibility(mentor, mentee)
 
-        if score >= 40:
+        if score >= 40:  # minimum quality threshold
             matches.append({
                 "mentor": mentor["name"],
                 "mentee": mentee["name"],
@@ -110,7 +94,6 @@ def find_matches(current_user):
                 "reasons": reasons
             })
 
-    # Highest score first
     matches.sort(key=lambda x: x["score"], reverse=True)
     return matches
 
@@ -123,51 +106,61 @@ def matchmaking_page():
     st.markdown("""
     <div class="card">
         <h2>Peer Learning Matchmaking</h2>
-        <p>We match learners with complementary strengths, same grade and time.</p>
+        <p>
+            We match students and mentors based on complementary strengths,
+            same grade, and available time slots.
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.form("profile_form"):
-        name = st.text_input("Your Name")
-        role = st.radio("Role", ["Student", "Mentor"], horizontal=True)
-        grade = st.selectbox("Grade", ["9", "10", "11", "12"])
-        time = st.selectbox("Available Time Slot", TIME_SLOTS)
+    # -------------------------------------------------
+    # LOAD CURRENT USER PROFILE
+    # -------------------------------------------------
+    cursor.execute("""
+        SELECT role, grade, time, strong_subjects, weak_subjects, teaches
+        FROM profiles
+        WHERE user_id = ?
+    """, (st.session_state.user_id,))
+    profile = cursor.fetchone()
 
-        if role == "Student":
-            weak = st.multiselect("Weak Subjects", SUBJECTS)
-            strong = []
-        else:
-            strong = st.multiselect("Strong Subjects", SUBJECTS)
-            weak = []
+    if not profile:
+        st.warning("Please complete your profile first.")
+        return
 
-        submitted = st.form_submit_button("Find Compatible Matches")
+    role, grade, time, strong, weak, teaches = profile
 
-    if submitted:
-        user = {
-            "name": name,
-            "role": role,
-            "grade": grade,
-            "time": time,
-            "strong": strong,
-            "weak": weak
-        }
+    current_user = {
+        "name": st.session_state.user_name,
+        "role": role,
+        "grade": grade,
+        "time": time,
+        "strong": teaches.split(",") if teaches else strong.split(",") if strong else [],
+        "weak": weak.split(",") if weak else []
+    }
 
-        results = find_matches(user)
+    # -------------------------------------------------
+    # FIND MATCHES
+    # -------------------------------------------------
+    all_users = load_profiles()
+    results = find_matches(current_user, all_users)
 
-        if results:
-            st.success(f"Found {len(results)} compatible match(es)")
+    # -------------------------------------------------
+    # DISPLAY RESULTS
+    # -------------------------------------------------
+    if results:
+        st.success(f"Found {len(results)} compatible match(es)")
 
-            for r in results:
-                st.markdown(f"""
-                <div class="card">
-                    <h4>Compatibility Score: {r['score']}%</h4>
-                    <strong>Mentor:</strong> {r['mentor']}<br>
-                    <strong>Mentee:</strong> {r['mentee']}<br>
-                    <strong>Why this match?</strong>
-                    <ul>
-                        {''.join(f"<li>{reason}</li>" for reason in r['reasons'])}
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.warning("No compatible matches found yet.")
+        for r in results:
+            st.markdown(f"""
+            <div class="card">
+                <h4>Compatibility Score: {r['score']}%</h4>
+                <strong>Mentor:</strong> {r['mentor']}<br>
+                <strong>Mentee:</strong> {r['mentee']}<br><br>
+                <strong>Why this match?</strong>
+                <ul>
+                    {''.join(f"<li>{reason}</li>" for reason in r['reasons'])}
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("No compatible matches found yet.")
