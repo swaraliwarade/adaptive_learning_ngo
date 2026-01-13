@@ -8,7 +8,7 @@ from admin import admin_page
 from auth import auth_page
 from dashboard import dashboard_page
 from matching import matchmaking_page
-
+from ngo import 
 # ---- DATABASE ----
 from database import init_db
 
