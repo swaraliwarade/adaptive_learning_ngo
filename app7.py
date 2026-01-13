@@ -66,32 +66,61 @@ section[data-testid="stSidebar"] {
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
 
-/* ===== FIXED DONATION BUTTON ===== */
+/* ================= DONATE BUTTON ================= */
 .donate-btn {
+  position:relative;
+  overflow:hidden;
   display:block;
   width:100%;
-  padding:0.85rem 1rem;
+  padding:0.9rem 1rem;
   margin-top:1rem;
   border-radius:999px;
-  border:none;
   text-align:center;
   font-weight:700;
   font-size:0.95rem;
 
-  /* 🔥 FORCE VISIBILITY */
   color:#ffffff !important;
   text-decoration:none !important;
 
   background:linear-gradient(135deg,#6366f1,#4f46e5);
   cursor:pointer;
-  transition:all 0.25s ease;
+  transition:transform 0.25s ease, box-shadow 0.25s ease;
 }
 
+/* Hover */
 .donate-btn:hover {
   transform:translateY(-2px);
   box-shadow:0 10px 25px rgba(79,70,229,.35);
   background:linear-gradient(135deg,#4f46e5,#4338ca);
-  color:#ffffff !important;
+}
+
+/* ================= RIPPLE EFFECT ================= */
+.donate-btn::after {
+  content:"";
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:10px;
+  height:10px;
+  background:rgba(255,255,255,0.45);
+  border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);
+  opacity:0;
+}
+
+.donate-btn:active::after {
+  animation:ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  0% {
+    transform:translate(-50%,-50%) scale(0);
+    opacity:0.7;
+  }
+  100% {
+    transform:translate(-50%,-50%) scale(20);
+    opacity:0;
+  }
 }
 </style>
 """, unsafe_allow_html=True)
