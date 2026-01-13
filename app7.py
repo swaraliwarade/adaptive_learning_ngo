@@ -66,28 +66,32 @@ section[data-testid="stSidebar"] {
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
 
-/* Donation button */
+/* ===== FIXED DONATION BUTTON ===== */
 .donate-btn {
   display:block;
   width:100%;
-  padding:0.8rem 1rem;
+  padding:0.85rem 1rem;
   margin-top:1rem;
   border-radius:999px;
   border:none;
   text-align:center;
-  font-weight:600;
+  font-weight:700;
   font-size:0.95rem;
-  color:white;
-  cursor:pointer;
+
+  /* 🔥 FORCE VISIBILITY */
+  color:#ffffff !important;
+  text-decoration:none !important;
+
   background:linear-gradient(135deg,#6366f1,#4f46e5);
+  cursor:pointer;
   transition:all 0.25s ease;
-  text-decoration:none;
 }
 
 .donate-btn:hover {
   transform:translateY(-2px);
   box-shadow:0 10px 25px rgba(79,70,229,.35);
   background:linear-gradient(135deg,#4f46e5,#4338ca);
+  color:#ffffff !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -171,7 +175,7 @@ elif page == "Donations":
         <h2>🤝 Support Education & Nutrition</h2>
         <p>
             Your contribution helps children learn better, stay nourished,
-            and build a brighter future. Choose a trusted NGO below.
+            and build a brighter future.
         </p>
     </div>
     """, unsafe_allow_html=True)
