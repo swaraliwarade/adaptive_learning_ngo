@@ -94,7 +94,7 @@ def load_files(mid):
     return cursor.fetchall()
 
 # =========================================================
-# END SESSION (NEW)
+# END SESSION
 # =========================================================
 def end_session(match_id):
     cursor.execute("""
@@ -105,9 +105,62 @@ def end_session(match_id):
     conn.commit()
 
 # =========================================================
+# ⭐ RATING UI
+# =========================================================
+def show_rating_ui(match_id):
+
+    # block duplicate rating
+    cursor.execute("""
+        SELECT 1 FROM session_ratings
+        WHERE match_id=? AND rater_id=?
+    """, (match_id, st.session_state.user_id))
+
+    if cursor.fetchone():
+        st.info("You have already rated this session.")
+        return
+
+    st.subheader("⭐ Rate Your Session")
+
+    if "rating" not in st.session_state:
+        st.session_state.rating = 0
+
+    cols = st.columns(5)
+    for i in range(5):
+        star = "⭐" if i < st.session_state.rating else "☆"
+        if cols[i].button(star, key=f"rate_{i}"):
+            st.session_state.rating = i + 1
+
+    if st.button("Submit Rating", use_container_width=True):
+        if st.session_state.rating == 0:
+            st.warning("Please select a rating first.")
+            return
+
+        cursor.execute("""
+            INSERT INTO session_ratings
+            (match_id, rater_id, rater_name, rating)
+            VALUES (?, ?, ?, ?)
+        """, (
+            match_id,
+            st.session_state.user_id,
+            st.session_state.user_name,
+            st.session_state.rating
+        ))
+        conn.commit()
+
+        st.success("Thank you for your feedback! 🎉")
+        st.session_state.rating_submitted = True
+
+# =========================================================
 # PAGE
 # =========================================================
 def matchmaking_page():
+
+    # ---------- SESSION STATE ----------
+    if "session_ended" not in st.session_state:
+        st.session_state.session_ended = False
+
+    if "rating_submitted" not in st.session_state:
+        st.session_state.rating_submitted = False
 
     # ---------- HEADER ----------
     st.markdown("""
@@ -163,7 +216,6 @@ def matchmaking_page():
     # MATCH PREVIEW
     # =====================================================
     if not match_id:
-
         if st.button("Find Best Match", use_container_width=True):
             m, s = find_best(user, load_profiles())
             if m:
@@ -174,13 +226,7 @@ def matchmaking_page():
             m = st.session_state.proposed_match
 
             st.markdown(f"""
-            <div style="
-                padding:1.2rem;
-                border-radius:14px;
-                border:1px solid #e5e7eb;
-                background:#ffffff;
-                margin-top:1rem;
-            ">
+            <div class="card">
                 <h4>Suggested Match</h4>
                 <p><b>Name:</b> {m['name']}</p>
                 <p><b>Role:</b> {m['role']}</p>
@@ -210,24 +256,11 @@ def matchmaking_page():
     # =====================================================
     # LIVE SESSION
     # =====================================================
-    st.markdown("""
-    <div style="
-        padding:1.2rem;
-        border-radius:14px;
-        background:#f8fafc;
-        border:1px solid #e5e7eb;
-        margin-bottom:1rem;
-    ">
-        <h3 style="margin:0;">Live Learning Room</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### Live Learning Room")
 
-    # ---------- CHAT ----------
-    st.markdown("### Session Chat")
-    chat_box = st.container(height=320)
-    with chat_box:
-        for sender, msg in load_msgs(match_id):
-            st.markdown(f"**{sender}:** {msg}")
+    # CHAT
+    for sender, msg in load_msgs(match_id):
+        st.markdown(f"**{sender}:** {msg}")
 
     with st.form("chat_form", clear_on_submit=True):
         msg = st.text_input("Type your message")
@@ -237,7 +270,7 @@ def matchmaking_page():
 
     st.divider()
 
-    # ---------- FILE SHARING ----------
+    # FILE SHARING
     st.markdown("### Shared Resources")
     with st.form("file_form", clear_on_submit=True):
         f = st.file_uploader("Upload a document or image")
@@ -256,14 +289,14 @@ def matchmaking_page():
 
     st.divider()
 
-    # ---------- END SESSION ----------
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button(
-            "End Session",
-            use_container_width=True,
-            help="End the learning session for both participants"
-        ):
+    # =====================================================
+    # END SESSION + RATING
+    # =====================================================
+    if not st.session_state.session_ended:
+        if st.button("End Session", use_container_width=True):
             end_session(match_id)
-            st.success("Session ended successfully.")
-            st.rerun()
+            st.session_state.session_ended = True
+            st.success("Session ended. Please rate your experience below 👇")
+
+    if st.session_state.session_ended and not st.session_state.rating_submitted:
+        show_rating_ui(match_id)
