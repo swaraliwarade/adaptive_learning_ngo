@@ -31,18 +31,32 @@ def update_last_seen():
     conn.commit()
 
 def normalize_match(m):
-    """Ensures proposed_match is always a dict"""
+    """
+    Defensive normalization:
+    - dict -> return as-is
+    - tuple -> map safely if length allows
+    - anything else -> None
+    """
+    if not m:
+        return None
+
     if isinstance(m, dict):
         return m
-    return {
-        "user_id": m[0],
-        "name": m[1],
-        "role": m[2],
-        "grade": m[3],
-        "time": m[4],
-        "strong": (m[7] or m[5] or "").split(","),
-        "weak": (m[6] or "").split(",")
-    }
+
+    if isinstance(m, (list, tuple)):
+        if len(m) < 5:
+            return None  # not enough data
+        return {
+            "user_id": m[0],
+            "name": m[1],
+            "role": m[2],
+            "grade": m[3],
+            "time": m[4],
+            "strong": (m[7] if len(m) > 7 else m[5] if len(m) > 5 else "").split(","),
+            "weak": (m[6] if len(m) > 6 else "").split(","),
+        }
+
+    return None
 
 # =========================================================
 # MATCHING
@@ -91,65 +105,18 @@ def find_best_match(current):
     return best, best_score
 
 # =========================================================
-# CHAT
-# =========================================================
-def load_msgs(mid):
-    cursor.execute(
-        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (mid,))
-    return cursor.fetchall()
-
-def send_msg(mid, sender, message):
-    cursor.execute(
-        "INSERT INTO messages (match_id, sender, message) VALUES (?,?,?)",
-        (mid, sender, message))
-    conn.commit()
-    update_last_seen()
-
-# =========================================================
-# FILES
-# =========================================================
-def save_file(mid, uploader, file):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
-    with open(path, "wb") as f:
-        f.write(file.getbuffer())
-
-    cursor.execute("""
-        INSERT INTO session_files (match_id, uploader, filename, filepath)
-        VALUES (?,?,?,?)
-    """, (mid, uploader, file.name, path))
-    conn.commit()
-
-def load_files(mid):
-    cursor.execute("""
-        SELECT uploader, filename, filepath
-        FROM session_files WHERE match_id=?
-    """, (mid,))
-    return cursor.fetchall()
-
-# =========================================================
-# END SESSION
-# =========================================================
-def end_session(match_id):
-    st.session_state.last_session_id = match_id
-    cursor.execute("""
-        UPDATE profiles
-        SET status='waiting', match_id=NULL
-        WHERE match_id=?
-    """, (match_id,))
-    conn.commit()
-    st.session_state.current_match_id = None
-    st.session_state.session_ended = True
-
-# =========================================================
 # MAIN PAGE
 # =========================================================
 def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # ================= 🤖 AI CHATBOT (RESTORED) =================
+    # 🎈 BALLOONS (FIXED)
+    if st.session_state.just_matched:
+        st.balloons()
+        st.session_state.just_matched = False
+
+    # ================= 🤖 AI CHATBOT =================
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_bot"):
         q = st.text_input("Ask the AI anything")
@@ -192,6 +159,11 @@ def matchmaking_page():
         if "proposed_match" in st.session_state:
             m = normalize_match(st.session_state.proposed_match)
 
+            if not m:
+                st.warning("Match data is invalid. Please search again.")
+                st.session_state.pop("proposed_match", None)
+                return
+
             st.subheader("👤 Suggested Partner")
             st.info(
                 f"**Name:** {m['name']}\n\n"
@@ -209,6 +181,7 @@ def matchmaking_page():
                     WHERE user_id IN (?,?)
                 """, (sid, user["user_id"], m["user_id"]))
                 conn.commit()
+
                 st.session_state.current_match_id = sid
                 st.session_state.just_matched = True
                 st.rerun()
