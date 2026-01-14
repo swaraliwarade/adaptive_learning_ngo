@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import time
 from database import cursor, conn
 from ai_helper import ask_ai
 
@@ -108,14 +109,6 @@ def end_session(match_id):
 # ⭐ RATING UI
 # =========================================================
 def show_rating_ui(match_id):
-    cursor.execute("""
-        SELECT 1 FROM session_ratings
-        WHERE match_id=? AND rater_id=?
-    """, (match_id, st.session_state.user_id))
-
-    if cursor.fetchone():
-        st.info("You already rated this session.")
-        return
 
     st.subheader("⭐ Rate Your Session")
 
@@ -124,7 +117,10 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
+        if cols[i].button(
+            "⭐" if i < st.session_state.rating else "☆",
+            key=f"rate_{i}"
+        ):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -145,17 +141,24 @@ def show_rating_ui(match_id):
         conn.commit()
 
         st.success("Thank you for your feedback! 🎉")
-        st.session_state.rating_submitted = True
+        st.session_state.session_rated = True
 
 # =========================================================
 # PAGE
 # =========================================================
 def matchmaking_page():
 
-    # ---------- STATE ----------
-    for k in ["celebrated", "session_ended", "rating_submitted"]:
+    # ---------- SESSION STATE ----------
+    for k, v in {
+        "celebrated": False,
+        "session_ended": False,
+        "session_rated": False,
+        "partner": None,
+        "partner_score": None,
+        "current_match_id": None
+    }.items():
         if k not in st.session_state:
-            st.session_state[k] = False
+            st.session_state[k] = v
 
     # ---------- PROFILE ----------
     cursor.execute("""
@@ -168,7 +171,7 @@ def matchmaking_page():
         st.warning("Please complete your profile first.")
         return
 
-    role, grade, time_slot, strong, weak, teaches, match_id = row
+    role, grade, time_slot, strong, weak, teaches, db_match_id = row
 
     user = {
         "user_id": st.session_state.user_id,
@@ -184,7 +187,7 @@ def matchmaking_page():
     # 🤖 AI ASSISTANT
     # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai"):
+    with st.form("ai_form"):
         q = st.text_input("Ask a concept or doubt")
         if st.form_submit_button("Ask") and q:
             st.success(ask_ai(q))
@@ -192,9 +195,10 @@ def matchmaking_page():
     st.divider()
 
     # =====================================================
-    # MATCHING (NO RETURN AFTER THIS)
+    # MATCHING
     # =====================================================
-    if not match_id:
+    if not st.session_state.current_match_id:
+
         if st.button("Find Best Match", use_container_width=True):
             m, s = find_best(user, load_profiles())
             if m:
@@ -203,6 +207,7 @@ def matchmaking_page():
 
         if st.session_state.get("proposed_match"):
             m = st.session_state.proposed_match
+
             st.markdown("### 🔍 Suggested Match")
             st.write(f"**Name:** {m['name']}")
             st.write(f"**Role:** {m['role']}")
@@ -211,74 +216,83 @@ def matchmaking_page():
             st.write(f"**Compatibility Score:** {st.session_state.proposed_score}")
 
             if st.button("Confirm Match", use_container_width=True):
-                mid = f"{user['user_id']}-{m['user_id']}"
+                session_id = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{int(time.time())}"
+
                 cursor.execute("""
                     UPDATE profiles
                     SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
-                """, (mid, user["user_id"], m["user_id"]))
+                """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
 
+                # 🔁 RESET SESSION STATE
+                st.session_state.current_match_id = session_id
                 st.session_state.partner = m
                 st.session_state.partner_score = st.session_state.proposed_score
                 st.session_state.celebrated = False
+                st.session_state.session_ended = False
+                st.session_state.session_rated = False
+                st.session_state.rating = 0
+
                 st.rerun()
+
+        return
 
     # =====================================================
-    # LIVE SESSION (THIS ALWAYS RUNS IF MATCHED)
+    # 🎈 LIVE SESSION
     # =====================================================
-    if match_id:
+    match_id = st.session_state.current_match_id
 
-        if not st.session_state.celebrated:
-            st.success("🎉 You're matched! Welcome to your live session.")
-            st.balloons()
-            st.session_state.celebrated = True
+    if not st.session_state.celebrated:
+        st.success("🎉 You're matched! Welcome to your live session.")
+        st.balloons()
+        st.session_state.celebrated = True
 
-        partner = st.session_state.get("partner")
-        if partner:
-            st.markdown("### 🤝 Your Learning Partner")
-            st.write(f"**Name:** {partner['name']}")
-            st.write(f"**Role:** {partner['role']}")
-            st.write(f"**Grade:** {partner['grade']}")
-            st.write(f"**Time Slot:** {partner['time']}")
-            st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
-            st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
-            st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
+    partner = st.session_state.partner
+    if partner:
+        st.markdown("### 🤝 Your Learning Partner")
+        st.write(f"**Name:** {partner['name']}")
+        st.write(f"**Role:** {partner['role']}")
+        st.write(f"**Grade:** {partner['grade']}")
+        st.write(f"**Time Slot:** {partner['time']}")
+        st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
+        st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
+        st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
 
-        # 🔴 END SESSION — ALWAYS VISIBLE & CENTERED
-        c1, c2, c3 = st.columns([1,2,1])
-        with c2:
-            if not st.session_state.session_ended:
-                if st.button("End Session", use_container_width=True):
-                    end_session(match_id)
-                    st.session_state.session_ended = True
+    # 🔴 END SESSION — ALWAYS VISIBLE
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if not st.session_state.session_ended:
+            if st.button("End Session", use_container_width=True):
+                end_session(match_id)
+                st.session_state.session_ended = True
 
-        st.divider()
+    st.divider()
 
-        # CHAT
-        st.markdown("### 💬 Live Learning Room")
-        for s, m in load_msgs(match_id):
-            st.markdown(f"**{s}:** {m}")
+    # CHAT
+    st.markdown("### 💬 Live Learning Room")
+    for s, m in load_msgs(match_id):
+        st.markdown(f"**{s}:** {m}")
 
-        with st.form("chat"):
-            msg = st.text_input("Message")
-            if st.form_submit_button("Send") and msg:
-                send_msg(match_id, user["name"], msg)
-                st.rerun()
+    with st.form("chat_form"):
+        msg = st.text_input("Type your message")
+        if st.form_submit_button("Send") and msg:
+            send_msg(match_id, user["name"], msg)
+            st.rerun()
 
-        # FILES
-        st.divider()
-        st.markdown("### 📂 Shared Resources")
-        with st.form("files"):
-            f = st.file_uploader("Upload file")
-            if st.form_submit_button("Upload") and f:
-                save_file(match_id, user["name"], f)
-                st.rerun()
+    # FILES
+    st.divider()
+    st.markdown("### 📂 Shared Resources")
+    with st.form("file_form"):
+        f = st.file_uploader("Upload file")
+        if st.form_submit_button("Upload") and f:
+            save_file(match_id, user["name"], f)
+            st.rerun()
 
-        for u, n, p in load_files(match_id):
-            with open(p, "rb") as file:
-                st.download_button(n, file, use_container_width=True)
+    for u, n, p in load_files(match_id):
+        with open(p, "rb") as file:
+            st.download_button(n, file, use_container_width=True)
 
-        # ⭐ RATING
-        if st.session_state.session_ended and not st.session_state.rating_submitted:
-            show_rating_ui(match_id)
+    # ⭐ RATING
+    if st.session_state.session_ended and not st.session_state.session_rated:
+        show_rating_ui(match_id)
