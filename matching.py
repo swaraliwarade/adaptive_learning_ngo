@@ -161,7 +161,7 @@ def render_session_summary(match_id):
     st.write(f"⭐ **Your rating:** {st.session_state.rating}/5")
 
     st.success("Great job! Redirecting to matchmaking… 🚀")
-    time.sleep(3)
+    time.sleep(5)
 
     reset_to_matchmaking()
 
@@ -320,3 +320,4 @@ def matchmaking_page():
 
         if st.session_state.show_summary:
             render_session_summary(match_id)
+
