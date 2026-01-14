@@ -58,14 +58,17 @@ def find_best(current, users):
     return (best, best_s) if best else (None, 0)
 
 # =========================================================
-# PRESENCE / HEARTBEAT
+# PRESENCE / HEARTBEAT (SAFE)
 # =========================================================
 def update_last_seen():
-    cursor.execute(
-        "UPDATE profiles SET last_seen=? WHERE user_id=?",
-        (int(time.time()), st.session_state.user_id)
-    )
-    conn.commit()
+    try:
+        cursor.execute(
+            "UPDATE profiles SET last_seen=? WHERE user_id=?",
+            (int(time.time()), st.session_state.user_id)
+        )
+        conn.commit()
+    except Exception:
+        pass
 
 # =========================================================
 # CHAT + FILE HELPERS
@@ -110,12 +113,16 @@ def load_files(mid):
 # END SESSION
 # =========================================================
 def end_session(match_id):
+    if st.session_state.get("session_ended"):
+        return
+
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
         WHERE match_id=?
     """, (match_id,))
     conn.commit()
+
     st.session_state.session_end = time.time()
     st.session_state.session_ended = True
 
@@ -274,13 +281,17 @@ def matchmaking_page():
         "partner_score": None,
         "proposed_match": None,
         "proposed_score": None,
-        "session_ended": False
+        "session_ended": False,
+        "partner_joined_notified": False
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
     # ---------------- DB SYNC
-    cursor.execute("SELECT match_id FROM profiles WHERE user_id=?", (st.session_state.user_id,))
+    cursor.execute(
+        "SELECT match_id FROM profiles WHERE user_id=?",
+        (st.session_state.user_id,)
+    )
     db_match = cursor.fetchone()
 
     if db_match and db_match[0]:
@@ -359,7 +370,6 @@ def matchmaking_page():
     # =====================================================
     match_id = st.session_state.current_match_id
 
-    # Partner presence
     cursor.execute("""
         SELECT user_id, last_seen
         FROM profiles
@@ -367,7 +377,7 @@ def matchmaking_page():
     """, (match_id, st.session_state.user_id))
     partner = cursor.fetchone()
 
-    if partner:
+    if partner and partner[1] is not None:
         online = "🟢 Online" if time.time() - partner[1] < 15 else "⚪ Offline"
         st.markdown(f"### 👤 Partner Status: {online}")
 
