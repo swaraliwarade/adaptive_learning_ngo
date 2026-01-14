@@ -203,6 +203,18 @@ def matchmaking_page():
     }
 
     # =====================================================
+    # 🤖 AI STUDY ASSISTANT (RESTORED)
+    # =====================================================
+    st.markdown("### 🤖 AI Study Assistant")
+    with st.form("ai_form", clear_on_submit=True):
+        q = st.text_input("Ask a concept, definition, example, or doubt")
+        if st.form_submit_button("Get Help") and q:
+            with st.spinner("Thinking..."):
+                st.success(ask_ai(q))
+
+    st.divider()
+
+    # =====================================================
     # MATCH PREVIEW
     # =====================================================
     if not match_id:
@@ -247,13 +259,11 @@ def matchmaking_page():
     # =====================================================
     if not st.session_state.celebrated:
         st.success("🎉 You're matched! Welcome to your live session.")
-
         st.components.v1.html("""
         <audio autoplay>
             <source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg">
         </audio>
         """, height=0)
-
         st.session_state.celebrated = True
 
     # =====================================================
