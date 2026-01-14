@@ -7,6 +7,20 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads/sessions"
 
 # =========================================================
+# SAFETY: ENSURE RATINGS TABLE EXISTS
+# =========================================================
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id TEXT,
+    rater_id INTEGER,
+    rating INTEGER,
+    created_at INTEGER
+)
+""")
+conn.commit()
+
+# =========================================================
 # HELPERS
 # =========================================================
 def now():
@@ -21,57 +35,6 @@ def online_status(last_seen):
     if diff < 300:
         return "🟡 Recently active"
     return "🔴 Offline"
-
-# =========================================================
-# LOAD USERS
-# =========================================================
-def load_profiles():
-    cursor.execute("""
-        SELECT a.id, a.name, p.role, p.grade, p.time,
-               p.strong_subjects, p.weak_subjects, p.teaches
-        FROM profiles p
-        JOIN auth_users a ON a.id = p.user_id
-        WHERE p.status='waiting'
-    """)
-    return cursor.fetchall()
-
-# =========================================================
-# MATCHING
-# =========================================================
-def score(u1, u2):
-    s = 0
-    s += len(set(u1["weak"]) & set(u2["strong"])) * 25
-    s += len(set(u2["weak"]) & set(u1["strong"])) * 25
-    if u1["grade"] == u2["grade"]:
-        s += 10
-    if u1["time"] == u2["time"]:
-        s += 10
-    return s
-
-def find_best(current):
-    rows = load_profiles()
-    best, best_s = None, -1
-
-    for r in rows:
-        uid, name, role, grade, time_slot, strong, weak, teaches = r
-        if uid == current["user_id"]:
-            continue
-
-        candidate = {
-            "user_id": uid,
-            "name": name,
-            "role": role,
-            "grade": grade,
-            "time": time_slot,
-            "strong": (teaches or strong or "").split(","),
-            "weak": (weak or "").split(",")
-        }
-
-        sc = score(current, candidate)
-        if sc > best_s:
-            best, best_s = candidate, sc
-
-    return best, best_s
 
 # =========================================================
 # PRESENCE
@@ -141,10 +104,8 @@ def generate_quiz_from_chat(match_id):
     discussion = "\n".join([f"{s}: {m}" for s, m in msgs])
 
     prompt = f"""
-Create EXACTLY 3 MCQs from the discussion.
-If discussion is short, make simple concept questions.
-
-Format strictly.
+Create EXACTLY 3 MCQs from this discussion.
+If short, make simple questions.
 
 Discussion:
 {discussion}
@@ -171,7 +132,6 @@ def render_practice_quiz(match_id):
     if "quiz" not in st.session_state:
         st.session_state.quiz = generate_quiz_from_chat(match_id)
         st.session_state.answers = {}
-        st.session_state.submitted = False
 
     for i, q in enumerate(st.session_state.quiz):
         st.markdown(f"**Q{i+1}. {q['question']}**")
@@ -190,6 +150,26 @@ def render_practice_quiz(match_id):
         st.metric("Score", f"{score}/3")
         if score == 3:
             st.balloons()
+
+# =========================================================
+# SESSION SUMMARY (NEW)
+# =========================================================
+def render_session_summary(match_id):
+    msgs = load_msgs(match_id)
+    discussion = "\n".join([f"{s}: {m}" for s, m in msgs])
+
+    prompt = f"""
+Summarize this study session:
+- Topics discussed
+- What was learned
+- Suggestions for improvement
+
+Discussion:
+{discussion}
+"""
+    summary = ask_ai(prompt)
+    st.subheader("📝 Session Summary")
+    st.write(summary)
 
 # =========================================================
 # MAIN PAGE
@@ -214,76 +194,10 @@ def matchmaking_page():
 
     st.divider()
 
-    # ================= MATCHMAKING =================
-    if not st.session_state.current_match_id and not st.session_state.session_ended:
-        cursor.execute("""
-            SELECT role, grade, time, strong_subjects, weak_subjects, teaches
-            FROM profiles WHERE user_id=?
-        """, (st.session_state.user_id,))
-        role, grade, time_slot, strong, weak, teaches = cursor.fetchone()
-
-        user = {
-            "user_id": st.session_state.user_id,
-            "name": st.session_state.user_name,
-            "role": role,
-            "grade": grade,
-            "time": time_slot,
-            "strong": (teaches or strong or "").split(","),
-            "weak": (weak or "").split(",")
-        }
-
-        if st.button("Find Best Match", use_container_width=True):
-            m, s = find_best(user)
-            if m:
-                st.session_state.proposed = m
-                st.session_state.score = s
-
-        if "proposed" in st.session_state:
-            m = st.session_state.proposed
-            st.subheader("👤 Partner Profile")
-            st.info(f"""
-**Name:** {m['name']}  
-**Role:** {m['role']}  
-**Grade:** {m['grade']}  
-**Strong:** {', '.join(m['strong'])}  
-**Weak:** {', '.join(m['weak'])}
-""")
-
-            if st.button("Confirm Match", use_container_width=True):
-                sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
-                cursor.execute("""
-                    UPDATE profiles SET status='matched', match_id=?
-                    WHERE user_id IN (?,?)
-                """, (sid, user["user_id"], m["user_id"]))
-                conn.commit()
-                st.session_state.current_match_id = sid
-                st.session_state.just_matched = True
-                st.rerun()
-        return
-
     # ================= LIVE SESSION =================
     if st.session_state.current_match_id and not st.session_state.session_ended:
         mid = st.session_state.current_match_id
 
-        cursor.execute("""
-            SELECT a.name, p.last_seen, p.role, p.grade, p.strong_subjects, p.weak_subjects
-            FROM profiles p JOIN auth_users a ON a.id=p.user_id
-            WHERE p.match_id=? AND p.user_id!=?
-        """, (mid, st.session_state.user_id))
-        partner = cursor.fetchone()
-
-        st.subheader("👥 Session Partner")
-        if partner:
-            name, last_seen, role, grade, strong, weak = partner
-            st.success(f"""
-**{name}**  
-{online_status(last_seen)}  
-Role: {role} | Grade: {grade}  
-Strong: {strong}  
-Weak: {weak}
-""")
-
-        st.divider()
         st.subheader("💬 Chat")
         for s, m in load_msgs(mid):
             st.markdown(f"**{s}:** {m}")
@@ -294,7 +208,6 @@ Weak: {weak}
                 send_msg(mid, st.session_state.user_name, msg)
                 st.rerun()
 
-        st.divider()
         st.subheader("📁 Files")
         f = st.file_uploader("Upload")
         if f and st.button("Upload file"):
@@ -312,14 +225,31 @@ Weak: {weak}
     # ================= POST SESSION =================
     if st.session_state.session_ended:
         st.subheader("⭐ Rate your partner")
-        rating = st.slider("Rating", 1, 5, 3)
+
+        stars = {
+            "⭐": 1,
+            "⭐⭐": 2,
+            "⭐⭐⭐": 3,
+            "⭐⭐⭐⭐": 4,
+            "⭐⭐⭐⭐⭐": 5
+        }
+
+        choice = st.radio("Your rating", list(stars.keys()), horizontal=True)
+
         if st.button("Submit Rating"):
             cursor.execute("""
-                INSERT INTO ratings (match_id, rater_id, rating)
-                VALUES (?,?,?)
-            """, (st.session_state.current_match_id, st.session_state.user_id, rating))
+                INSERT INTO ratings (match_id, rater_id, rating, created_at)
+                VALUES (?,?,?,?)
+            """, (
+                st.session_state.current_match_id,
+                st.session_state.user_id,
+                stars[choice],
+                now()
+            ))
             conn.commit()
-            st.success("Rating submitted")
+            st.success("⭐ Rating submitted")
 
-        if st.button("Practice on this topic"):
-            render_practice_quiz(st.session_state.current_match_id)
+            render_session_summary(st.session_state.current_match_id)
+
+            if st.button("Practice on this topic"):
+                render_practice_quiz(st.session_state.current_match_id)
