@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 import time
 from database import cursor, conn
 from ai_helper import ask_ai
@@ -13,53 +12,33 @@ def now():
     return int(time.time())
 
 def init_state():
-    st.session_state.setdefault("user_id", None)
-    st.session_state.setdefault("user_name", "")
-    st.session_state.setdefault("current_match_id", None)
-    st.session_state.setdefault("session_ended", False)
-    st.session_state.setdefault("last_session_id", None)
-    st.session_state.setdefault("selected_rating", 0)
-    st.session_state.setdefault("just_matched", False)
+    defaults = {
+        "user_id": None,
+        "user_name": "",
+        "current_match_id": None,
+        "session_ended": False,
+        "last_session_id": None,
+        "selected_rating": 0,
+        "just_matched": False,
+        "partner_joined": False,
+        "chat_log": [],
+        "quiz_data": None,
+        "quiz_answers": {},
+        "show_quiz": False,
+    }
+    for k, v in defaults.items():
+        st.session_state.setdefault(k, v)
 
 def update_last_seen():
-    if not st.session_state.user_id:
-        return
-    cursor.execute(
-        "UPDATE profiles SET last_seen=? WHERE user_id=?",
-        (now(), st.session_state.user_id)
-    )
-    conn.commit()
-
-def normalize_match(m):
-    """
-    Defensive normalization:
-    - dict -> return as-is
-    - tuple -> map safely if length allows
-    - anything else -> None
-    """
-    if not m:
-        return None
-
-    if isinstance(m, dict):
-        return m
-
-    if isinstance(m, (list, tuple)):
-        if len(m) < 5:
-            return None  # not enough data
-        return {
-            "user_id": m[0],
-            "name": m[1],
-            "role": m[2],
-            "grade": m[3],
-            "time": m[4],
-            "strong": (m[7] if len(m) > 7 else m[5] if len(m) > 5 else "").split(","),
-            "weak": (m[6] if len(m) > 6 else "").split(","),
-        }
-
-    return None
+    if st.session_state.user_id:
+        cursor.execute(
+            "UPDATE profiles SET last_seen=? WHERE user_id=?",
+            (now(), st.session_state.user_id)
+        )
+        conn.commit()
 
 # =========================================================
-# MATCHING
+# MATCHING LOGIC
 # =========================================================
 def load_waiting_profiles():
     cursor.execute("""
@@ -105,83 +84,182 @@ def find_best_match(current):
     return best, best_score
 
 # =========================================================
+# AI FEATURES
+# =========================================================
+def generate_session_summary():
+    chat = "\n".join(st.session_state.chat_log[-20:])
+    prompt = f"Summarize this study session in 5 bullet points:\n{chat}"
+    return ask_ai(prompt)
+
+def generate_quiz():
+    chat = "\n".join(st.session_state.chat_log[-30:])
+    prompt = f"""
+    Create a 4-question MCQ quiz based on this discussion.
+    Format EXACTLY like:
+    Q1: question
+    A) option
+    B) option
+    C) option
+    D) option
+    Answer: B
+    """
+    return ask_ai(prompt)
+
+# =========================================================
 # MAIN PAGE
 # =========================================================
 def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # 🎈 BALLOONS (FIXED)
+    # 🎈 MATCH CONFIRMATION BALLOONS
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
 
-    # ================= 🤖 AI CHATBOT =================
-    st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai_bot"):
-        q = st.text_input("Ask the AI anything")
-        if st.form_submit_button("Ask") and q:
-            st.success(ask_ai(q))
+    st.title("🤝 Study Matchmaking")
 
-    st.divider()
+    # ================= ACTIVE SESSION =================
+    if st.session_state.current_match_id and not st.session_state.session_ended:
+        st.success("✅ Session Active")
+
+        # 🔔 Partner joined notification
+        if not st.session_state.partner_joined:
+            st.toast("🎉 Your study partner has joined!", icon="🔔")
+            st.session_state.partner_joined = True
+
+        st.markdown("### 💬 Study Chat")
+        msg = st.text_input("Type message")
+        if st.button("Send") and msg:
+            st.session_state.chat_log.append(msg)
+            st.success("Message sent")
+
+        st.divider()
+
+        # 🔴 END SESSION
+        if st.button("🛑 End Session", use_container_width=True):
+            st.session_state.session_ended = True
+            st.session_state.last_session_id = st.session_state.current_match_id
+            st.session_state.current_match_id = None
+            st.rerun()
+
+        return
+
+    # ================= POST SESSION =================
+    if st.session_state.session_ended:
+        st.subheader("📊 Session Summary")
+        with st.spinner("Generating summary..."):
+            st.info(generate_session_summary())
+
+        st.subheader("⭐ Rate Your Partner")
+        rating = st.slider("Rating", 1, 5, 3)
+        if st.button("Submit Rating"):
+            st.success("Thanks for your feedback! ⭐")
+
+        st.divider()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📝 Take AI Quiz"):
+                st.session_state.quiz_data = generate_quiz()
+                st.session_state.show_quiz = True
+
+        with col2:
+            if st.button("🔁 Back to Matchmaking"):
+                st.session_state.session_ended = False
+                st.session_state.chat_log = []
+                st.rerun()
+
+        # ================= QUIZ =================
+        if st.session_state.show_quiz and st.session_state.quiz_data:
+            st.subheader("🧠 AI Quiz")
+            raw = st.session_state.quiz_data.split("\n")
+            correct = 0
+            q_no = 0
+            correct_answers = {}
+
+            for line in raw:
+                if line.startswith("Answer"):
+                    correct_answers[q_no] = line.split(":")[-1].strip()
+
+            q_no = 0
+            for i, line in enumerate(raw):
+                if line.startswith("Q"):
+                    q_no += 1
+                    st.markdown(f"**{line}**")
+                    opts = raw[i+1:i+5]
+                    choice = st.radio(
+                        f"Q{q_no}",
+                        ["A", "B", "C", "D"],
+                        key=f"q{q_no}"
+                    )
+                    st.session_state.quiz_answers[q_no] = choice
+
+            if st.button("Submit Quiz"):
+                for q, ans in st.session_state.quiz_answers.items():
+                    if ans == correct_answers.get(q):
+                        correct += 1
+
+                if correct == len(correct_answers):
+                    st.balloons()
+                    st.success("🎉 All answers correct!")
+                else:
+                    st.error("❌ Some answers were incorrect. Try again!")
+
+        return
 
     # ================= MATCHMAKING =================
-    if not st.session_state.current_match_id and not st.session_state.session_ended:
-        cursor.execute("""
-            SELECT role, grade, time, strong_subjects, weak_subjects, teaches
-            FROM profiles WHERE user_id=?
-        """, (st.session_state.user_id,))
-        row = cursor.fetchone()
+    st.subheader("🔍 Find a Study Partner")
 
-        if not row:
-            st.warning("Complete your profile first.")
+    cursor.execute("""
+        SELECT role, grade, time, strong_subjects, weak_subjects, teaches
+        FROM profiles WHERE user_id=?
+    """, (st.session_state.user_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        st.warning("Complete your profile first.")
+        return
+
+    role, grade, time_slot, strong, weak, teaches = row
+    user = {
+        "user_id": st.session_state.user_id,
+        "name": st.session_state.user_name,
+        "role": role,
+        "grade": grade,
+        "time": time_slot,
+        "strong": (teaches or strong or "").split(","),
+        "weak": (weak or "").split(",")
+    }
+
+    if st.button("🔍 Find Best Match", use_container_width=True):
+        m, s = find_best_match(user)
+        if not m:
+            st.info("No suitable match right now.")
             return
 
-        role, grade, time_slot, strong, weak, teaches = row
-        user = {
-            "user_id": st.session_state.user_id,
-            "name": st.session_state.user_name,
-            "role": role,
-            "grade": grade,
-            "time": time_slot,
-            "strong": (teaches or strong or "").split(","),
-            "weak": (weak or "").split(",")
-        }
+        st.session_state.proposed_match = m
+        st.session_state.proposed_score = s
 
-        if st.button("🔍 Find Best Match", use_container_width=True):
-            m, s = find_best_match(user)
-            if m:
-                st.session_state.proposed_match = m
-                st.session_state.proposed_score = s
-            else:
-                st.info("No suitable match right now.")
+    if "proposed_match" in st.session_state:
+        m = st.session_state.proposed_match
+        st.info(
+            f"""
+            **Name:** {m['name']}  
+            **Role:** {m['role']}  
+            **Grade:** {m['grade']}  
+            **Compatibility:** {st.session_state.proposed_score}
+            """
+        )
 
-        if "proposed_match" in st.session_state:
-            m = normalize_match(st.session_state.proposed_match)
+        if st.button("✅ Confirm Match", use_container_width=True):
+            sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
+            cursor.execute("""
+                UPDATE profiles SET status='matched', match_id=?
+                WHERE user_id IN (?,?)
+            """, (sid, user["user_id"], m["user_id"]))
+            conn.commit()
 
-            if not m:
-                st.warning("Match data is invalid. Please search again.")
-                st.session_state.pop("proposed_match", None)
-                return
-
-            st.subheader("👤 Suggested Partner")
-            st.info(
-                f"**Name:** {m['name']}\n\n"
-                f"**Role:** {m['role']}\n\n"
-                f"**Grade:** {m['grade']}\n\n"
-                f"**Strong:** {', '.join(m['strong'])}\n\n"
-                f"**Weak:** {', '.join(m['weak'])}\n\n"
-                f"**Compatibility:** {st.session_state.proposed_score}"
-            )
-
-            if st.button("✅ Confirm Match", use_container_width=True):
-                sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
-                cursor.execute("""
-                    UPDATE profiles SET status='matched', match_id=?
-                    WHERE user_id IN (?,?)
-                """, (sid, user["user_id"], m["user_id"]))
-                conn.commit()
-
-                st.session_state.current_match_id = sid
-                st.session_state.just_matched = True
-                st.rerun()
+            st.session_state.current_match_id = sid
+            st.session_state.just_matched = True
+            st.rerun()
