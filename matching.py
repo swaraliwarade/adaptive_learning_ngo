@@ -8,7 +8,7 @@ UPLOAD_DIR = "uploads/sessions"
 MATCH_THRESHOLD = 20
 
 # =========================================================
-# LOAD USERS
+# LOAD WAITING USERS
 # =========================================================
 def load_profiles():
     cursor.execute("""
@@ -34,7 +34,7 @@ def load_profiles():
     return users
 
 # =========================================================
-# MATCH LOGIC
+# MATCH SCORING
 # =========================================================
 def score(u1, u2):
     s = 0
@@ -59,40 +59,75 @@ def find_best(current, users):
 # =========================================================
 # CHAT + FILE HELPERS
 # =========================================================
-def load_msgs(mid):
+def load_msgs(match_id):
     cursor.execute(
         "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (mid,))
+        (match_id,))
     return cursor.fetchall()
 
-def send_msg(mid, sender, message):
+def send_msg(match_id, sender, message):
     cursor.execute(
         "INSERT INTO messages (match_id, sender, message) VALUES (?,?,?)",
-        (mid, sender, message))
+        (match_id, sender, message))
     conn.commit()
 
-def save_file(mid, uploader, file):
+def save_file(match_id, uploader, file):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
+    path = f"{UPLOAD_DIR}/{match_id}_{file.name}"
     with open(path, "wb") as f:
         f.write(file.getbuffer())
 
     cursor.execute("""
         INSERT INTO session_files (match_id, uploader, filename, filepath)
         VALUES (?,?,?,?)
-    """, (mid, uploader, file.name, path))
+    """, (match_id, uploader, file.name, path))
     conn.commit()
 
-def load_files(mid):
+def load_files(match_id):
     cursor.execute("""
         SELECT uploader, filename, filepath
         FROM session_files
         WHERE match_id=?
-    """, (mid,))
+    """, (match_id,))
     return cursor.fetchall()
 
 # =========================================================
-# AI QUIZ FROM CHAT
+# ⭐ RATING UI
+# =========================================================
+def show_rating_ui(match_id):
+    st.subheader("⭐ Rate Your Session")
+
+    if "rating" not in st.session_state:
+        st.session_state.rating = 0
+
+    cols = st.columns(5)
+    for i in range(5):
+        star = "⭐" if i < st.session_state.rating else "☆"
+        if cols[i].button(star, key=f"rate_{i}"):
+            st.session_state.rating = i + 1
+
+    if st.button("Submit Rating", use_container_width=True):
+        if st.session_state.rating == 0:
+            st.warning("Please select a rating")
+            return
+
+        cursor.execute("""
+            INSERT INTO session_ratings
+            (match_id, rater_id, rater_name, rating)
+            VALUES (?, ?, ?, ?)
+        """, (
+            match_id,
+            st.session_state.user_id,
+            st.session_state.user_name,
+            st.session_state.rating
+        ))
+        conn.commit()
+
+        st.success("Thanks for your feedback!")
+        st.session_state.rating_done = True
+
+# =========================================================
+# 🤖 AI QUIZ FROM CHAT
 # =========================================================
 def generate_quiz_from_chat(match_id):
     msgs = load_msgs(match_id)
@@ -130,17 +165,64 @@ Discussion:
                 ans = l.split(":")[-1].strip()
 
         if opts and ans:
-            questions.append({"question": q, "options": opts, "answer": ans})
+            questions.append({
+                "question": q,
+                "options": opts,
+                "answer": ans
+            })
 
     return questions
+
+def render_practice_quiz(match_id):
+    st.markdown("## 🧠 Practice Quiz (AI Generated)")
+
+    if "quiz_questions" not in st.session_state:
+        st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
+        st.session_state.quiz_answers = {}
+        st.session_state.quiz_submitted = False
+
+    if not st.session_state.quiz_questions:
+        st.info("Not enough discussion to generate quiz.")
+        return
+
+    for i, q in enumerate(st.session_state.quiz_questions):
+        st.markdown(f"**Q{i+1}. {q['question']}**")
+        st.session_state.quiz_answers[i] = st.radio(
+            "Choose an option",
+            list(q["options"].keys()),
+            format_func=lambda x: f"{x}) {q['options'][x]}",
+            key=f"quiz_{i}"
+        )
+
+    if not st.session_state.quiz_submitted:
+        if st.button("Submit Quiz", use_container_width=True):
+            st.session_state.quiz_submitted = True
+
+    if st.session_state.quiz_submitted:
+        score = sum(
+            1 for i, q in enumerate(st.session_state.quiz_questions)
+            if st.session_state.quiz_answers.get(i) == q["answer"]
+        )
+        total = len(st.session_state.quiz_questions)
+
+        st.metric("Score", f"{score}/{total}")
+
+        if score == total:
+            st.balloons()
+        elif score == 0:
+            st.error("All answers were incorrect")
+            st.snow()
+
+        if st.button("Back to Matchmaking"):
+            reset_to_matchmaking()
 
 # =========================================================
 # RESET
 # =========================================================
 def reset_to_matchmaking():
     for k in [
-        "current_match_id", "partner", "partner_score",
-        "session_ended", "celebrated", "session_start",
+        "current_match_id", "session_start", "celebrated",
+        "rating", "rating_done",
         "quiz_questions", "quiz_answers", "quiz_submitted",
         "proposed_match", "proposed_score"
     ]:
@@ -153,32 +235,24 @@ def reset_to_matchmaking():
 def matchmaking_page():
 
     # ------------------------------
-    # 🔄 DB SYNC (CRITICAL FIX)
+    # DB → SESSION SYNC (CRITICAL)
     # ------------------------------
     cursor.execute("""
-        SELECT match_id
-        FROM profiles
-        WHERE user_id=?
+        SELECT match_id FROM profiles WHERE user_id=?
     """, (st.session_state.user_id,))
-    row = cursor.fetchone()
+    db_row = cursor.fetchone()
 
-    if row and row[0]:
-        if st.session_state.get("current_match_id") != row[0]:
-            st.session_state.current_match_id = row[0]
+    if db_row and db_row[0]:
+        if st.session_state.get("current_match_id") != db_row[0]:
+            st.session_state.current_match_id = db_row[0]
             st.session_state.session_start = time.time()
             st.session_state.celebrated = False
 
-    # ------------------------------
-    # INIT STATE
-    # ------------------------------
     for k, v in {
         "current_match_id": None,
-        "partner": None,
-        "partner_score": None,
-        "proposed_match": None,
-        "proposed_score": None,
+        "celebrated": False,
         "session_ended": False,
-        "celebrated": False
+        "rating_done": False
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -226,7 +300,7 @@ def matchmaking_page():
                 st.session_state.proposed_match = m
                 st.session_state.proposed_score = s
 
-        if st.session_state.proposed_match:
+        if st.session_state.get("proposed_match"):
             m = st.session_state.proposed_match
             st.markdown("## 🔍 Suggested Match")
             st.write(f"**Name:** {m['name']}")
@@ -250,7 +324,7 @@ def matchmaking_page():
         return
 
     # -----------------------------------------------------
-    # LIVE SESSION (BOTH USERS SEE THIS)
+    # LIVE SESSION
     # -----------------------------------------------------
     match_id = st.session_state.current_match_id
 
@@ -260,13 +334,13 @@ def matchmaking_page():
         st.session_state.celebrated = True
 
     elapsed = int(time.time() - st.session_state.session_start)
-    st.caption(f"⏱ Session Time: {elapsed // 60}m {elapsed % 60}s")
+    st.caption(f"⏱ Session Time: {elapsed//60}m {elapsed%60}s")
 
     st.markdown("### 💬 Live Chat")
     for s, m in load_msgs(match_id):
         st.markdown(f"**{s}:** {m}")
 
-    with st.form("chat"):
+    with st.form("chat_form"):
         msg = st.text_input("Message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, st.session_state.user_name, msg)
@@ -295,5 +369,8 @@ def matchmaking_page():
             conn.commit()
             st.session_state.session_ended = True
 
-    if st.session_state.session_ended:
+    if st.session_state.session_ended and not st.session_state.rating_done:
+        show_rating_ui(match_id)
+
+    if st.session_state.rating_done:
         render_practice_quiz(match_id)
