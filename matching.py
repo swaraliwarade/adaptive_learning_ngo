@@ -7,16 +7,6 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads/sessions"
 MATCH_THRESHOLD = 30
 
-# Auto-find match if coming from rematch
-cursor.execute("""
-    SELECT 1 FROM rematch_requests
-    WHERE (from_user=? OR to_user=?) AND status='accepted'
-""", (st.session_state.user_id, st.session_state.user_id))
-
-if cursor.fetchone():
-    st.info("🔁 Re-match accepted! Click 'Find Best Match' to continue.")
-
-
 # =========================================================
 # LOAD USERS
 # =========================================================
@@ -344,4 +334,5 @@ def matchmaking_page():
         for mid, rating in history:
             with st.expander(f"Session {mid} • ⭐ {rating}/5"):
                 st.write(f"**Rating Given:** {rating}/5")
+
 
