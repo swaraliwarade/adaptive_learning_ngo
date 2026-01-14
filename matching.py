@@ -109,7 +109,6 @@ def end_session(match_id):
 # =========================================================
 def show_rating_ui(match_id):
 
-    # block duplicate rating
     cursor.execute("""
         SELECT 1 FROM session_ratings
         WHERE match_id=? AND rater_id=?
@@ -156,11 +155,13 @@ def show_rating_ui(match_id):
 def matchmaking_page():
 
     # ---------- SESSION STATE ----------
-    if "session_ended" not in st.session_state:
-        st.session_state.session_ended = False
-
-    if "rating_submitted" not in st.session_state:
-        st.session_state.rating_submitted = False
+    for k, v in {
+        "session_ended": False,
+        "rating_submitted": False,
+        "celebrated": False
+    }.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
     # ---------- HEADER ----------
     st.markdown("""
@@ -202,17 +203,6 @@ def matchmaking_page():
     }
 
     # =====================================================
-    # AI ASSISTANT
-    # =====================================================
-    st.markdown("### AI Study Assistant")
-    with st.form("ai_form", clear_on_submit=True):
-        q = st.text_input("Ask a concept, definition, or example")
-        if st.form_submit_button("Get Help") and q:
-            st.success(ask_ai(q))
-
-    st.divider()
-
-    # =====================================================
     # MATCH PREVIEW
     # =====================================================
     if not match_id:
@@ -245,20 +235,32 @@ def matchmaking_page():
                     WHERE user_id IN (?, ?)
                 """, (mid, user["user_id"], m["user_id"]))
                 conn.commit()
+
+                st.session_state.celebrated = False
                 st.session_state.proposed_match = None
                 st.rerun()
 
-            if c2.button("Cancel", use_container_width=True):
-                st.session_state.proposed_match = None
-
         return
+
+    # =====================================================
+    # 🔊 CELEBRATION SOUND (ONCE)
+    # =====================================================
+    if not st.session_state.celebrated:
+        st.success("🎉 You're matched! Welcome to your live session.")
+
+        st.components.v1.html("""
+        <audio autoplay>
+            <source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg">
+        </audio>
+        """, height=0)
+
+        st.session_state.celebrated = True
 
     # =====================================================
     # LIVE SESSION
     # =====================================================
     st.markdown("### Live Learning Room")
 
-    # CHAT
     for sender, msg in load_msgs(match_id):
         st.markdown(f"**{sender}:** {msg}")
 
@@ -270,7 +272,6 @@ def matchmaking_page():
 
     st.divider()
 
-    # FILE SHARING
     st.markdown("### Shared Resources")
     with st.form("file_form", clear_on_submit=True):
         f = st.file_uploader("Upload a document or image")
@@ -289,9 +290,6 @@ def matchmaking_page():
 
     st.divider()
 
-    # =====================================================
-    # END SESSION + RATING
-    # =====================================================
     if not st.session_state.session_ended:
         if st.button("End Session", use_container_width=True):
             end_session(match_id)
