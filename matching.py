@@ -116,11 +116,11 @@ def end_session(match_id):
         WHERE match_id=?
     """, (match_id,))
     conn.commit()
-    st.session_state.session_end = time.time()
     st.session_state.session_ended = True
+    st.session_state.session_end = time.time()
 
 # =========================================================
-# AI QUIZ
+# AI QUIZ FROM CHAT
 # =========================================================
 def generate_quiz_from_chat(match_id):
     msgs = load_msgs(match_id)
@@ -128,7 +128,7 @@ def generate_quiz_from_chat(match_id):
         return []
 
     discussion = "\n".join([f"{s}: {m}" for s, m in msgs])
-    raw = ask_ai(f"Create 3 MCQs from this discussion:\n{discussion}")
+    raw = ask_ai(f"Create exactly 3 MCQs from this discussion:\n{discussion}")
 
     questions = []
     for block in raw.split("Q")[1:]:
@@ -145,7 +145,7 @@ def generate_quiz_from_chat(match_id):
     return questions
 
 def render_practice_quiz(match_id):
-    st.subheader("✎ Practice Quiz")
+    st.subheader("🧠 Practice Quiz (AI from Chat)")
 
     if "quiz_questions" not in st.session_state:
         st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
@@ -153,7 +153,7 @@ def render_practice_quiz(match_id):
         st.session_state.quiz_submitted = False
 
     if not st.session_state.quiz_questions:
-        st.info("Not enough discussion for quiz.")
+        st.info("Not enough discussion to generate quiz.")
         return
 
     for i, q in enumerate(st.session_state.quiz_questions):
@@ -201,9 +201,25 @@ def matchmaking_page():
 
     update_last_seen()
 
-    for k in ["current_match_id", "session_ended"]:
-        if k not in st.session_state:
-            st.session_state[k] = None if k == "current_match_id" else False
+    if "current_match_id" not in st.session_state:
+        st.session_state.current_match_id = None
+    if "session_ended" not in st.session_state:
+        st.session_state.session_ended = False
+
+    # ---------------- DB → SESSION SYNC (CRITICAL FIX)
+    cursor.execute(
+        "SELECT match_id FROM profiles WHERE user_id=?",
+        (st.session_state.user_id,)
+    )
+    db_match = cursor.fetchone()
+
+    if db_match and db_match[0]:
+        if st.session_state.current_match_id != db_match[0]:
+            st.session_state.current_match_id = db_match[0]
+            st.session_state.session_start = st.session_state.get(
+                "session_start", time.time()
+            )
+            st.session_state.session_ended = False
 
     # ================= AI ASSISTANT =================
     st.markdown("### 🤖 AI Study Assistant")
@@ -265,8 +281,6 @@ def matchmaking_page():
                     WHERE user_id IN (?,?)
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
-                st.session_state.current_match_id = session_id
-                st.session_state.session_start = time.time()
                 st.balloons()
                 st.rerun()
         return
@@ -279,7 +293,12 @@ def matchmaking_page():
         st.success("🎉 Live session in progress")
         st.caption(f"⏱ {elapsed//60}m {elapsed%60}s")
 
-        for s, m in load_msgs(match_id):
+        st.markdown("### 💬 Live Chat")
+        msgs = load_msgs(match_id)
+        if not msgs:
+            st.info("No messages yet. Start chatting 👇")
+
+        for s, m in msgs:
             st.markdown(f"**{s}:** {m}")
 
         with st.form("chat"):
@@ -307,12 +326,11 @@ def matchmaking_page():
 
     # ================= POST SESSION =================
     if st.session_state.session_ended:
-        st.subheader("✓ Session Completed")
+        st.subheader("✅ Session Completed")
 
         col1, col2 = st.columns(2)
-        if col1.button("✎ Practice on this topic"):
+        if col1.button("Practice on this topic"):
             render_practice_quiz(st.session_state.current_match_id)
 
-        if col2.button("⬌ Back to Matchmaking"):
+        if col2.button("⬅ Back to Matchmaking"):
             reset_to_matchmaking()
-
