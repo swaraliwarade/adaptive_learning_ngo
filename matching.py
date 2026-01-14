@@ -6,6 +6,7 @@ from ai_helper import ask_ai
 
 UPLOAD_DIR = "uploads/sessions"
 MATCH_THRESHOLD = 20
+PARTNER_TIMEOUT = 60  # seconds
 
 # =========================================================
 # LOAD USERS
@@ -57,19 +58,32 @@ def find_best(current, users):
     return (best, best_s) if best else (None, 0)
 
 # =========================================================
+# PRESENCE / HEARTBEAT
+# =========================================================
+def update_last_seen():
+    cursor.execute(
+        "UPDATE profiles SET last_seen=? WHERE user_id=?",
+        (int(time.time()), st.session_state.user_id)
+    )
+    conn.commit()
+
+# =========================================================
 # CHAT + FILE HELPERS
 # =========================================================
 def load_msgs(mid):
     cursor.execute(
         "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (mid,))
+        (mid,)
+    )
     return cursor.fetchall()
 
 def send_msg(mid, sender, message):
     cursor.execute(
         "INSERT INTO messages (match_id, sender, message) VALUES (?,?,?)",
-        (mid, sender, message))
+        (mid, sender, message)
+    )
     conn.commit()
+    update_last_seen()
 
 def save_file(mid, uploader, file):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -82,6 +96,7 @@ def save_file(mid, uploader, file):
         VALUES (?,?,?,?)
     """, (mid, uploader, file.name, path))
     conn.commit()
+    update_last_seen()
 
 def load_files(mid):
     cursor.execute("""
@@ -90,6 +105,19 @@ def load_files(mid):
         WHERE match_id=?
     """, (mid,))
     return cursor.fetchall()
+
+# =========================================================
+# END SESSION
+# =========================================================
+def end_session(match_id):
+    cursor.execute("""
+        UPDATE profiles
+        SET status='waiting', match_id=NULL
+        WHERE match_id=?
+    """, (match_id,))
+    conn.commit()
+    st.session_state.session_end = time.time()
+    st.session_state.session_ended = True
 
 # =========================================================
 # AI QUIZ FROM CHAT
@@ -178,6 +206,20 @@ def render_practice_quiz(match_id):
             st.snow()
 
 # =========================================================
+# SESSION SUMMARY
+# =========================================================
+def show_session_summary(match_id):
+    duration = int(st.session_state.session_end - st.session_state.session_start)
+    msgs = load_msgs(match_id)
+    files = load_files(match_id)
+
+    st.markdown("## 📊 Session Summary")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("⏱ Duration", f"{duration//60} min")
+    c2.metric("💬 Messages", len(msgs))
+    c3.metric("📂 Files", len(files))
+
+# =========================================================
 # RATING
 # =========================================================
 def show_rating_ui(match_id):
@@ -203,7 +245,6 @@ def show_rating_ui(match_id):
             st.session_state.rating
         ))
         conn.commit()
-        st.success("Thanks for rating! 🎉")
         reset_to_matchmaking()
 
 # =========================================================
@@ -212,9 +253,10 @@ def show_rating_ui(match_id):
 def reset_to_matchmaking():
     for k in [
         "current_match_id", "partner", "partner_score",
-        "session_start", "session_ended",
+        "session_start", "session_end", "session_ended",
         "quiz_questions", "quiz_answers", "quiz_submitted",
-        "rating", "proposed_match", "proposed_score"
+        "rating", "proposed_match", "proposed_score",
+        "partner_joined_notified"
     ]:
         st.session_state.pop(k, None)
     st.rerun()
@@ -223,6 +265,8 @@ def reset_to_matchmaking():
 # PAGE
 # =========================================================
 def matchmaking_page():
+
+    update_last_seen()
 
     for k, v in {
         "current_match_id": None,
@@ -235,11 +279,8 @@ def matchmaking_page():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # ---------------- DB SYNC (CRITICAL FIX)
-    cursor.execute(
-        "SELECT match_id FROM profiles WHERE user_id=?",
-        (st.session_state.user_id,)
-    )
+    # ---------------- DB SYNC
+    cursor.execute("SELECT match_id FROM profiles WHERE user_id=?", (st.session_state.user_id,))
     db_match = cursor.fetchone()
 
     if db_match and db_match[0]:
@@ -247,8 +288,9 @@ def matchmaking_page():
             st.session_state.current_match_id = db_match[0]
             st.session_state.session_start = time.time()
             st.session_state.session_ended = False
+            st.session_state.partner_joined_notified = False
 
-    # ---------------- AI Assistant
+    # ---------------- AI ASSISTANT
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
         q = st.text_input("Ask a question")
@@ -261,7 +303,6 @@ def matchmaking_page():
     # MATCHMAKING
     # =====================================================
     if not st.session_state.current_match_id:
-
         cursor.execute("""
             SELECT role, grade, time, strong_subjects, weak_subjects, teaches
             FROM profiles WHERE user_id=?
@@ -318,6 +359,26 @@ def matchmaking_page():
     # =====================================================
     match_id = st.session_state.current_match_id
 
+    # Partner presence
+    cursor.execute("""
+        SELECT user_id, last_seen
+        FROM profiles
+        WHERE match_id=? AND user_id!=?
+    """, (match_id, st.session_state.user_id))
+    partner = cursor.fetchone()
+
+    if partner:
+        online = "🟢 Online" if time.time() - partner[1] < 15 else "⚪ Offline"
+        st.markdown(f"### 👤 Partner Status: {online}")
+
+        if time.time() - partner[1] > PARTNER_TIMEOUT:
+            st.warning("Partner left the session.")
+            end_session(match_id)
+
+    if not st.session_state.partner_joined_notified:
+        st.toast("🔔 Both learners have joined the session")
+        st.session_state.partner_joined_notified = True
+
     elapsed = int(time.time() - st.session_state.session_start)
     st.success("🎉 Live session in progress")
     st.caption(f"⏱ {elapsed//60}m {elapsed%60}s")
@@ -348,14 +409,9 @@ def matchmaking_page():
     st.divider()
 
     if st.button("🔴 End Session", use_container_width=True):
-        cursor.execute("""
-            UPDATE profiles
-            SET status='waiting', match_id=NULL
-            WHERE match_id=?
-        """, (match_id,))
-        conn.commit()
-        st.session_state.session_ended = True
+        end_session(match_id)
 
     if st.session_state.session_ended:
+        show_session_summary(match_id)
         show_rating_ui(match_id)
         render_practice_quiz(match_id)
