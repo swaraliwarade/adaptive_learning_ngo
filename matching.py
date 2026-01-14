@@ -61,7 +61,7 @@ def find_best(current, users):
 # =========================================================
 def load_msgs(mid):
     cursor.execute(
-        "SELECT sender, message FROM messages WHERE match_id=?",
+        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
         (mid,)
     )
     return cursor.fetchall()
@@ -87,7 +87,10 @@ def save_file(mid, uploader, file):
 
 def load_files(mid):
     cursor.execute("""
-        SELECT uploader, filename FROM session_files WHERE match_id=?
+        SELECT uploader, filename, filepath
+        FROM session_files
+        WHERE match_id=?
+        ORDER BY uploaded_at
     """, (mid,))
     return cursor.fetchall()
 
@@ -101,29 +104,6 @@ def end_session(match_id):
         WHERE match_id=?
     """, (match_id,))
     conn.commit()
-
-# =========================================================
-# SESSION SUMMARY
-# =========================================================
-def render_session_summary(match_id, partner, score, rating):
-
-    messages = load_msgs(match_id)
-    files = load_files(match_id)
-
-    st.markdown("## 🧾 Session Summary")
-
-    c1, c2 = st.columns(2)
-    c1.metric("Partner", partner["name"])
-    c2.metric("Compatibility", score)
-
-    st.write(f"**Messages exchanged:** {len(messages)}")
-    st.write(f"**Files shared:** {len(files)}")
-    st.write(f"**Your rating:** ⭐ {rating}/5")
-
-    st.success("Great job! Redirecting you back to matchmaking… 🚀")
-    time.sleep(3)
-
-    reset_to_matchmaking()
 
 # =========================================================
 # ⭐ RATING
@@ -163,6 +143,30 @@ def show_rating_ui(match_id):
         st.session_state.show_summary = True
 
 # =========================================================
+# 🧾 SESSION SUMMARY
+# =========================================================
+def render_session_summary(match_id):
+
+    messages = load_msgs(match_id)
+    files = load_files(match_id)
+    partner = st.session_state.partner
+
+    st.markdown("## 🧾 Session Summary")
+
+    c1, c2 = st.columns(2)
+    c1.metric("Learning Partner", partner["name"])
+    c2.metric("Compatibility Score", st.session_state.partner_score)
+
+    st.write(f"💬 **Messages exchanged:** {len(messages)}")
+    st.write(f"📂 **Files shared:** {len(files)}")
+    st.write(f"⭐ **Your rating:** {st.session_state.rating}/5")
+
+    st.success("Great work! Redirecting to matchmaking… 🚀")
+    time.sleep(3)
+
+    reset_to_matchmaking()
+
+# =========================================================
 # 🔁 RESET
 # =========================================================
 def reset_to_matchmaking():
@@ -178,6 +182,7 @@ def reset_to_matchmaking():
         "proposed_score"
     ]:
         st.session_state.pop(k, None)
+
     st.rerun()
 
 # =========================================================
@@ -221,9 +226,20 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    # -----------------------------------------------------
+    # =====================================================
+    # 🤖 AI CHATBOT (RESTORED ✅)
+    # =====================================================
+    st.markdown("### 🤖 AI Study Assistant")
+    with st.form("ai_form"):
+        q = st.text_input("Ask a concept, definition, or example")
+        if st.form_submit_button("Ask") and q:
+            st.success(ask_ai(q))
+
+    st.divider()
+
+    # =====================================================
     # MATCHMAKING
-    # -----------------------------------------------------
+    # =====================================================
     if not st.session_state.current_match_id:
 
         if st.button("Find Best Match", use_container_width=True):
@@ -234,12 +250,19 @@ def matchmaking_page():
 
         if st.session_state.get("proposed_match"):
             m = st.session_state.proposed_match
-            st.write(f"**Suggested Match:** {m['name']} (Score {st.session_state.proposed_score})")
+            st.markdown("### 🔍 Suggested Match")
+            st.write(f"**Name:** {m['name']}")
+            st.write(f"**Role:** {m['role']}")
+            st.write(f"**Grade:** {m['grade']}")
+            st.write(f"**Time Slot:** {m['time']}")
+            st.write(f"**Compatibility Score:** {st.session_state.proposed_score}")
 
             if st.button("Confirm Match", use_container_width=True):
                 session_id = f"{user['user_id']}-{m['user_id']}-{int(time.time())}"
+
                 cursor.execute("""
-                    UPDATE profiles SET status='matched', match_id=?
+                    UPDATE profiles
+                    SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
@@ -248,9 +271,15 @@ def matchmaking_page():
                 st.session_state.partner = m
                 st.session_state.partner_score = st.session_state.proposed_score
                 st.session_state.celebrated = False
+                st.session_state.session_ended = False
+                st.session_state.rating = 0
+
                 st.rerun()
 
     else:
+        # =====================================================
+        # 🎈 LIVE SESSION
+        # =====================================================
         match_id = st.session_state.current_match_id
 
         if not st.session_state.celebrated:
@@ -258,18 +287,47 @@ def matchmaking_page():
             st.balloons()
             st.session_state.celebrated = True
 
+        # 🔴 End Session
         if not st.session_state.session_ended:
             if st.button("🔴 End Session", use_container_width=True):
                 end_session(match_id)
                 st.session_state.session_ended = True
 
+        st.divider()
+
+        # =====================================================
+        # 💬 LIVE CHAT (RESTORED ✅)
+        # =====================================================
+        st.markdown("### 💬 Live Learning Room")
+        for s, m in load_msgs(match_id):
+            st.markdown(f"**{s}:** {m}")
+
+        with st.form("chat_form"):
+            msg = st.text_input("Type your message")
+            if st.form_submit_button("Send") and msg:
+                send_msg(match_id, user["name"], msg)
+                st.rerun()
+
+        # =====================================================
+        # 📂 FILE UPLOADS (RESTORED ✅)
+        # =====================================================
+        st.divider()
+        st.markdown("### 📂 Shared Resources")
+        with st.form("file_form"):
+            f = st.file_uploader("Upload file")
+            if st.form_submit_button("Upload") and f:
+                save_file(match_id, user["name"], f)
+                st.rerun()
+
+        for u, n, p in load_files(match_id):
+            with open(p, "rb") as file:
+                st.download_button(n, file, use_container_width=True)
+
+        # =====================================================
+        # ⭐ RATING → SUMMARY
+        # =====================================================
         if st.session_state.session_ended and not st.session_state.show_summary:
             show_rating_ui(match_id)
 
         if st.session_state.show_summary:
-            render_session_summary(
-                match_id,
-                st.session_state.partner,
-                st.session_state.partner_score,
-                st.session_state.rating
-            )
+            render_session_summary(match_id)
