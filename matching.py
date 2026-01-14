@@ -231,7 +231,7 @@ def generate_quiz_from_chat(match_id):
 # =========================================================
 def render_practice_quiz(match_id):
 
-    st.markdown("##Practice Quiz")
+    st.markdown("## ⚙︎ Practice Quiz")
 
     if not st.session_state.quiz_questions:
         st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
@@ -438,3 +438,4 @@ def matchmaking_page():
 
         if st.session_state.show_practice:
             render_practice_quiz(match_id)
+
