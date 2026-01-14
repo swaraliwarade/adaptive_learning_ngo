@@ -13,7 +13,6 @@ def now():
     return int(time.time())
 
 def init_state():
-    """SAFE session state initialization"""
     st.session_state.setdefault("user_id", None)
     st.session_state.setdefault("user_name", "")
     st.session_state.setdefault("current_match_id", None)
@@ -30,6 +29,20 @@ def update_last_seen():
         (now(), st.session_state.user_id)
     )
     conn.commit()
+
+def normalize_match(m):
+    """Ensures proposed_match is always a dict"""
+    if isinstance(m, dict):
+        return m
+    return {
+        "user_id": m[0],
+        "name": m[1],
+        "role": m[2],
+        "grade": m[3],
+        "time": m[4],
+        "strong": (m[7] or m[5] or "").split(","),
+        "weak": (m[6] or "").split(",")
+    }
 
 # =========================================================
 # MATCHING
@@ -120,14 +133,12 @@ def load_files(mid):
 # =========================================================
 def end_session(match_id):
     st.session_state.last_session_id = match_id
-
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
         WHERE match_id=?
     """, (match_id,))
     conn.commit()
-
     st.session_state.current_match_id = None
     st.session_state.session_ended = True
 
@@ -138,17 +149,14 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # 🛡️ Create ratings table ONLY when page is active
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS ratings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        match_id TEXT NOT NULL,
-        rater_id INTEGER NOT NULL,
-        rating INTEGER NOT NULL,
-        created_at INTEGER NOT NULL
-    )
-    """)
-    conn.commit()
+    # ================= 🤖 AI CHATBOT (RESTORED) =================
+    st.markdown("### 🤖 AI Study Assistant")
+    with st.form("ai_bot"):
+        q = st.text_input("Ask the AI anything")
+        if st.form_submit_button("Ask") and q:
+            st.success(ask_ai(q))
+
+    st.divider()
 
     # ================= MATCHMAKING =================
     if not st.session_state.current_match_id and not st.session_state.session_ended:
@@ -182,7 +190,8 @@ def matchmaking_page():
                 st.info("No suitable match right now.")
 
         if "proposed_match" in st.session_state:
-            m = st.session_state.proposed_match
+            m = normalize_match(st.session_state.proposed_match)
+
             st.subheader("👤 Suggested Partner")
             st.info(
                 f"**Name:** {m['name']}\n\n"
@@ -200,7 +209,6 @@ def matchmaking_page():
                     WHERE user_id IN (?,?)
                 """, (sid, user["user_id"], m["user_id"]))
                 conn.commit()
-
                 st.session_state.current_match_id = sid
                 st.session_state.just_matched = True
                 st.rerun()
