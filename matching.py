@@ -109,6 +109,7 @@ def end_session(match_id):
 # ⭐ RATING
 # =========================================================
 def show_rating_ui(match_id):
+
     st.subheader("⭐ Rate Your Session")
 
     if "rating" not in st.session_state:
@@ -116,7 +117,10 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
+        if cols[i].button(
+            "⭐" if i < st.session_state.rating else "☆",
+            key=f"rate_{i}"
+        ):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -139,9 +143,10 @@ def show_rating_ui(match_id):
         st.session_state.show_summary = True
 
 # =========================================================
-# 🧾 SESSION SUMMARY (WITH TIME)
+# 🧾 SESSION SUMMARY
 # =========================================================
 def render_session_summary(match_id):
+
     messages = load_msgs(match_id)
     files = load_files(match_id)
     partner = st.session_state.partner
@@ -155,15 +160,65 @@ def render_session_summary(match_id):
     c1.metric("Learning Partner", partner["name"])
     c2.metric("Compatibility Score", st.session_state.partner_score)
 
-    st.write(f"⏱ **Session Duration:** {mins} min {secs} sec")
+    st.write(f"⏱ **Duration:** {mins} min {secs} sec")
     st.write(f"💬 **Messages exchanged:** {len(messages)}")
     st.write(f"📂 **Files shared:** {len(files)}")
     st.write(f"⭐ **Your rating:** {st.session_state.rating}/5")
 
-    st.success("Great job! Redirecting to matchmaking… 🚀")
-    time.sleep(5)
+    st.divider()
+    st.success("Would you like to practice what you learned?")
 
-    reset_to_matchmaking()
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🧠 Practice Now", use_container_width=True):
+            st.session_state.show_practice = True
+
+    with c2:
+        if st.button("Skip for Now", use_container_width=True):
+            reset_to_matchmaking()
+
+# =========================================================
+# 🧠 AI PRACTICE QUIZ
+# =========================================================
+def generate_quiz_from_chat(match_id):
+
+    messages = load_msgs(match_id)
+    if not messages:
+        return "No discussion found to generate a quiz."
+
+    chat_text = "\n".join([f"{s}: {m}" for s, m in messages])
+
+    prompt = f"""
+    Based on the following learning conversation, generate a short quiz
+    with 3 multiple-choice questions.
+
+    Format exactly like this:
+    Q1. Question
+    A) option
+    B) option
+    C) option
+    D) option
+    Answer: A
+
+    Conversation:
+    {chat_text}
+    """
+
+    return ask_ai(prompt)
+
+
+def render_practice_quiz(match_id):
+
+    st.markdown("## 🧠 Practice What You Learned")
+
+    if not st.session_state.quiz_generated:
+        st.session_state.quiz_content = generate_quiz_from_chat(match_id)
+        st.session_state.quiz_generated = True
+
+    st.markdown(st.session_state.quiz_content)
+
+    if st.button("Finish Practice", use_container_width=True):
+        reset_to_matchmaking()
 
 # =========================================================
 # 🔁 RESET
@@ -177,6 +232,9 @@ def reset_to_matchmaking():
         "celebrated",
         "rating",
         "show_summary",
+        "show_practice",
+        "quiz_generated",
+        "quiz_content",
         "proposed_match",
         "proposed_score",
         "session_start_time"
@@ -197,6 +255,9 @@ def matchmaking_page():
         "partner_score": None,
         "current_match_id": None,
         "show_summary": False,
+        "show_practice": False,
+        "quiz_generated": False,
+        "quiz_content": "",
         "session_start_time": None
     }.items():
         if k not in st.session_state:
@@ -228,11 +289,11 @@ def matchmaking_page():
     }
 
     # =====================================================
-    # 🤖 AI ASSISTANT
+    # 🤖 AI STUDY ASSISTANT
     # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
-        q = st.text_input("Ask a concept, definition, or example")
+        q = st.text_input("Ask a concept or doubt")
         if st.form_submit_button("Ask") and q:
             st.success(ask_ai(q))
 
@@ -293,6 +354,7 @@ def matchmaking_page():
 
         st.divider()
 
+        # 💬 CHAT
         st.markdown("### 💬 Live Learning Room")
         for s, m in load_msgs(match_id):
             st.markdown(f"**{s}:** {m}")
@@ -303,6 +365,7 @@ def matchmaking_page():
                 send_msg(match_id, user["name"], msg)
                 st.rerun()
 
+        # 📂 FILES
         st.divider()
         st.markdown("### 📂 Shared Resources")
         with st.form("file_form"):
@@ -315,9 +378,12 @@ def matchmaking_page():
             with open(p, "rb") as file:
                 st.download_button(n, file, use_container_width=True)
 
-        if st.session_state.session_ended and not st.session_state.show_summary:
+        # ⭐ RATING → SUMMARY → PRACTICE
+        if st.session_state.session_ended and not st.session_state.show_summary and not st.session_state.show_practice:
             show_rating_ui(match_id)
 
         if st.session_state.show_summary:
             render_session_summary(match_id)
 
+        if st.session_state.show_practice:
+            render_practice_quiz(match_id)
