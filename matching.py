@@ -36,7 +36,6 @@ def update_last_seen():
         conn.commit()
 
 def normalize_match(m):
-    """Always return dict or None"""
     if not m:
         return None
     if isinstance(m, dict):
@@ -63,6 +62,7 @@ def load_waiting_profiles():
         FROM profiles p
         JOIN auth_users a ON a.id=p.user_id
         WHERE p.status='waiting'
+          AND p.match_id IS NULL
     """)
     rows = cursor.fetchall()
 
@@ -108,7 +108,7 @@ def generate_summary(chat):
 
 def generate_quiz(chat):
     prompt = f"""
-Create 4 MCQ questions from this discussion.
+Create exactly 4 MCQ questions from this discussion.
 FORMAT STRICTLY AS:
 Q1: question
 A) option
@@ -126,9 +126,17 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
+    # ✅ ENSURE USER IS AVAILABLE FOR MATCHING
+    cursor.execute("""
+        UPDATE profiles
+        SET status='waiting', match_id=NULL
+        WHERE user_id=? AND status!='matched'
+    """, (st.session_state.user_id,))
+    conn.commit()
+
     st.title("🤝 Study Matchmaking")
 
-    # 🎈 AFTER MATCH CONFIRMATION
+    # 🎈 MATCH CONFIRMATION BALLOONS
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
@@ -157,10 +165,17 @@ def matchmaking_page():
 
         st.divider()
 
-        # 🔴 END SESSION BUTTON
+        # 🛑 END SESSION
         if st.button("🛑 End Session", use_container_width=True):
+            cursor.execute("""
+                UPDATE profiles
+                SET status='waiting', match_id=NULL
+                WHERE match_id=?
+            """, (st.session_state.current_match_id,))
+            conn.commit()
+
             st.session_state.session_ended = True
-            st.session_state.show_quiz = False
+            st.session_state.current_match_id = None
             st.rerun()
         return
 
@@ -173,19 +188,12 @@ def matchmaking_page():
             summary = generate_summary(st.session_state.chat_log)
             st.info(summary)
 
-        cursor.execute(
-            "INSERT OR IGNORE INTO sessions(match_id, started_at, ended_at, summary) VALUES (?,?,?,?)",
-            (st.session_state.current_match_id, now(), now(), summary)
-        )
-        conn.commit()
-
         st.subheader("⭐ Rate Your Partner")
         rating = st.slider("Rating", 1, 5, 3)
         if st.button("Submit Rating"):
             cursor.execute(
                 "INSERT INTO session_ratings(match_id, rater_id, rater_name, rating) VALUES (?,?,?,?)",
-                (st.session_state.current_match_id, st.session_state.user_id,
-                 st.session_state.user_name, rating)
+                (None, st.session_state.user_id, st.session_state.user_name, rating)
             )
             conn.commit()
             st.success("Thanks for rating! ⭐")
@@ -202,12 +210,10 @@ def matchmaking_page():
             if st.button("🔁 Back to Matchmaking"):
                 st.session_state.session_ended = False
                 st.session_state.chat_log.clear()
-                st.session_state.current_match_id = None
+                st.session_state.show_quiz = False
                 st.rerun()
 
-        # =================================================
-        # QUIZ
-        # =================================================
+        # ================= QUIZ =================
         if st.session_state.show_quiz:
             st.subheader("📝 AI Quiz")
 
@@ -224,10 +230,9 @@ def matchmaking_page():
                 if line.startswith("Q"):
                     q_no += 1
                     st.markdown(f"**{line}**")
-                    opts = ["A", "B", "C", "D"]
                     choice = st.radio(
-                        f"Choose answer for Q{q_no}",
-                        opts,
+                        f"Answer for Q{q_no}",
+                        ["A", "B", "C", "D"],
                         key=f"quiz_{q_no}"
                     )
                     st.session_state.quiz_answers[q_no] = choice
@@ -275,7 +280,7 @@ def matchmaking_page():
     if st.button("🔍 Find Best Match", use_container_width=True):
         m, s = find_best_match(user)
         if not m:
-            st.info("No suitable match found.")
+            st.info("No suitable match right now.")
             return
         st.session_state.proposed_match = m
         st.session_state.proposed_score = s
@@ -283,7 +288,7 @@ def matchmaking_page():
     if st.session_state.proposed_match:
         m = normalize_match(st.session_state.proposed_match)
         if not m:
-            st.warning("Invalid match data. Retry.")
+            st.warning("Invalid match data. Please retry.")
             st.session_state.proposed_match = None
             return
 
@@ -300,7 +305,8 @@ def matchmaking_page():
             sid = f"{min(int(user['user_id']), int(m['user_id']))}-{max(int(user['user_id']), int(m['user_id']))}-{now()}"
 
             cursor.execute("""
-                UPDATE profiles SET status='matched', match_id=?
+                UPDATE profiles
+                SET status='matched', match_id=?
                 WHERE user_id IN (?,?)
             """, (sid, user["user_id"], m["user_id"]))
             conn.commit()
