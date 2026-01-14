@@ -4,6 +4,9 @@ from datetime import timedelta
 from database import cursor, conn
 from streak import init_streak, render_streak_ui
 
+SUBJECTS = ["Mathematics", "English", "Science"]
+TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
+
 # -----------------------------------------------------
 # HELPERS
 # -----------------------------------------------------
@@ -45,7 +48,7 @@ def send_rematch_request(to_user_id):
 
 def load_incoming_requests(user_id):
     cursor.execute("""
-        SELECT rr.id, au.name
+        SELECT rr.id, au.name, au.id
         FROM rematch_requests rr
         JOIN auth_users au ON au.id = rr.from_user
         WHERE rr.to_user = ? AND rr.status = 'pending'
@@ -53,18 +56,17 @@ def load_incoming_requests(user_id):
     return cursor.fetchall()
 
 
-def accept_request(req_id, from_user):
+def accept_request(req_id, from_user_id):
     cursor.execute("""
         UPDATE rematch_requests SET status='accepted' WHERE id=?
     """, (req_id,))
     conn.commit()
 
-    # Put both users back into waiting
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
         WHERE user_id IN (?, ?)
-    """, (st.session_state.user_id, from_user))
+    """, (st.session_state.user_id, from_user_id))
     conn.commit()
 
 
@@ -80,7 +82,7 @@ def dashboard_page():
     st.divider()
 
     # -------------------------------------------------
-    # PROFILE
+    # PROFILE FETCH
     # -------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
@@ -88,10 +90,53 @@ def dashboard_page():
     """, (st.session_state.user_id,))
     profile = cursor.fetchone()
 
+    # -------------------------------------------------
+    # PROFILE SETUP (FIXED ✅)
+    # -------------------------------------------------
     if not profile:
-        st.warning("Please complete your profile from Dashboard.")
-        return
+        st.subheader("🧾 Complete Your Profile")
 
+        with st.form("profile_form"):
+            role = st.radio("Role", ["Student", "Teacher"], horizontal=True)
+            grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)])
+            time_slot = st.selectbox("Available Time Slot", TIME_SLOTS)
+
+            strong, weak, teaches = [], [], []
+
+            if role == "Student":
+                strong = st.multiselect("Strong Subjects", SUBJECTS)
+                weak = st.multiselect("Weak Subjects", SUBJECTS)
+            else:
+                teaches = st.multiselect("Subjects You Teach", SUBJECTS)
+
+            submitted = st.form_submit_button("Save Profile")
+
+        if submitted:
+            cursor.execute("""
+                INSERT OR REPLACE INTO profiles (
+                    user_id, role, grade, time,
+                    strong_subjects, weak_subjects, teaches, status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
+            """, (
+                st.session_state.user_id,
+                role,
+                grade,
+                time_slot,
+                ",".join(strong),
+                ",".join(weak),
+                ",".join(teaches)
+            ))
+            conn.commit()
+
+            st.success("Profile saved successfully!")
+            st.rerun()
+
+        return  # stop dashboard here until profile saved
+
+    # -------------------------------------------------
+    # PROFILE OVERVIEW
+    # -------------------------------------------------
     role, grade, time_slot, strong, weak, teaches = profile
 
     st.subheader("Profile Overview")
@@ -101,7 +146,6 @@ def dashboard_page():
     c3.metric("Time Slot", time_slot)
 
     st.divider()
-
     render_streak_ui()
     st.divider()
 
@@ -139,10 +183,10 @@ def dashboard_page():
     if not requests:
         st.info("No new requests.")
     else:
-        for req_id, sender_name in requests:
+        for req_id, sender_name, sender_id in requests:
             col1, col2 = st.columns([3,1])
             col1.write(f"👤 {sender_name} wants to study again")
             if col2.button("Accept", key=f"accept_{req_id}"):
-                accept_request(req_id, sender_name)
+                accept_request(req_id, sender_id)
                 st.success("Request accepted! Go to Matchmaking.")
                 st.rerun()
