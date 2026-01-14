@@ -7,45 +7,29 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads/sessions"
 
 # =========================================================
-# DB SAFETY
-# =========================================================
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS ratings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT NOT NULL,
-    rater_id INTEGER NOT NULL,
-    rating INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
-)
-""")
-conn.commit()
-
-# =========================================================
 # HELPERS
 # =========================================================
 def now():
     return int(time.time())
 
+def init_state():
+    """SAFE session state initialization"""
+    st.session_state.setdefault("user_id", None)
+    st.session_state.setdefault("user_name", "")
+    st.session_state.setdefault("current_match_id", None)
+    st.session_state.setdefault("session_ended", False)
+    st.session_state.setdefault("last_session_id", None)
+    st.session_state.setdefault("selected_rating", 0)
+    st.session_state.setdefault("just_matched", False)
+
 def update_last_seen():
+    if not st.session_state.user_id:
+        return
     cursor.execute(
         "UPDATE profiles SET last_seen=? WHERE user_id=?",
         (now(), st.session_state.user_id)
     )
     conn.commit()
-
-def normalize_match(m):
-    """Ensure match is always a dict (fixes tuple crash)"""
-    if isinstance(m, dict):
-        return m
-    return {
-        "user_id": m[0],
-        "name": m[1],
-        "role": m[2],
-        "grade": m[3],
-        "time": m[4],
-        "strong": (m[7] or m[5] or "").split(","),
-        "weak": (m[6] or "").split(",")
-    }
 
 # =========================================================
 # MATCHING
@@ -151,13 +135,20 @@ def end_session(match_id):
 # MAIN PAGE
 # =========================================================
 def matchmaking_page():
+    init_state()
     update_last_seen()
 
-    st.session_state.setdefault("current_match_id", None)
-    st.session_state.setdefault("session_ended", False)
-    st.session_state.setdefault("last_session_id", None)
-    st.session_state.setdefault("selected_rating", 0)
-    st.session_state.setdefault("just_matched", False)
+    # 🛡️ Create ratings table ONLY when page is active
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT NOT NULL,
+        rater_id INTEGER NOT NULL,
+        rating INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+    )
+    """)
+    conn.commit()
 
     # ================= MATCHMAKING =================
     if not st.session_state.current_match_id and not st.session_state.session_ended:
@@ -187,19 +178,20 @@ def matchmaking_page():
             if m:
                 st.session_state.proposed_match = m
                 st.session_state.proposed_score = s
+            else:
+                st.info("No suitable match right now.")
 
         if "proposed_match" in st.session_state:
-            m = normalize_match(st.session_state.proposed_match)
-
+            m = st.session_state.proposed_match
             st.subheader("👤 Suggested Partner")
-            st.info(f"""
-**Name:** {m['name']}  
-**Role:** {m['role']}  
-**Grade:** {m['grade']}  
-**Strong:** {', '.join(m['strong'])}  
-**Weak:** {', '.join(m['weak'])}  
-**Compatibility:** {st.session_state.proposed_score}
-""")
+            st.info(
+                f"**Name:** {m['name']}\n\n"
+                f"**Role:** {m['role']}\n\n"
+                f"**Grade:** {m['grade']}\n\n"
+                f"**Strong:** {', '.join(m['strong'])}\n\n"
+                f"**Weak:** {', '.join(m['weak'])}\n\n"
+                f"**Compatibility:** {st.session_state.proposed_score}"
+            )
 
             if st.button("✅ Confirm Match", use_container_width=True):
                 sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
@@ -212,4 +204,3 @@ def matchmaking_page():
                 st.session_state.current_match_id = sid
                 st.session_state.just_matched = True
                 st.rerun()
-        return
