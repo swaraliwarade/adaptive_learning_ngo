@@ -109,7 +109,6 @@ def end_session(match_id):
 # ⭐ RATING
 # =========================================================
 def show_rating_ui(match_id):
-
     st.subheader("⭐ Rate Your Session")
 
     if "rating" not in st.session_state:
@@ -117,10 +116,7 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button(
-            "⭐" if i < st.session_state.rating else "☆",
-            key=f"rate_{i}"
-        ):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -143,13 +139,15 @@ def show_rating_ui(match_id):
         st.session_state.show_summary = True
 
 # =========================================================
-# 🧾 SESSION SUMMARY
+# 🧾 SESSION SUMMARY (WITH TIME)
 # =========================================================
 def render_session_summary(match_id):
-
     messages = load_msgs(match_id)
     files = load_files(match_id)
     partner = st.session_state.partner
+
+    duration_sec = int(time.time() - st.session_state.session_start_time)
+    mins, secs = divmod(duration_sec, 60)
 
     st.markdown("## 🧾 Session Summary")
 
@@ -157,11 +155,12 @@ def render_session_summary(match_id):
     c1.metric("Learning Partner", partner["name"])
     c2.metric("Compatibility Score", st.session_state.partner_score)
 
+    st.write(f"⏱ **Session Duration:** {mins} min {secs} sec")
     st.write(f"💬 **Messages exchanged:** {len(messages)}")
     st.write(f"📂 **Files shared:** {len(files)}")
     st.write(f"⭐ **Your rating:** {st.session_state.rating}/5")
 
-    st.success("Great work! Redirecting to matchmaking… 🚀")
+    st.success("Great job! Redirecting to matchmaking… 🚀")
     time.sleep(3)
 
     reset_to_matchmaking()
@@ -179,7 +178,8 @@ def reset_to_matchmaking():
         "rating",
         "show_summary",
         "proposed_match",
-        "proposed_score"
+        "proposed_score",
+        "session_start_time"
     ]:
         st.session_state.pop(k, None)
 
@@ -196,7 +196,8 @@ def matchmaking_page():
         "partner": None,
         "partner_score": None,
         "current_match_id": None,
-        "show_summary": False
+        "show_summary": False,
+        "session_start_time": None
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -227,7 +228,7 @@ def matchmaking_page():
     }
 
     # =====================================================
-    # 🤖 AI CHATBOT (RESTORED ✅)
+    # 🤖 AI ASSISTANT
     # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
@@ -270,6 +271,7 @@ def matchmaking_page():
                 st.session_state.current_match_id = session_id
                 st.session_state.partner = m
                 st.session_state.partner_score = st.session_state.proposed_score
+                st.session_state.session_start_time = time.time()
                 st.session_state.celebrated = False
                 st.session_state.session_ended = False
                 st.session_state.rating = 0
@@ -277,9 +279,6 @@ def matchmaking_page():
                 st.rerun()
 
     else:
-        # =====================================================
-        # 🎈 LIVE SESSION
-        # =====================================================
         match_id = st.session_state.current_match_id
 
         if not st.session_state.celebrated:
@@ -287,7 +286,6 @@ def matchmaking_page():
             st.balloons()
             st.session_state.celebrated = True
 
-        # 🔴 End Session
         if not st.session_state.session_ended:
             if st.button("🔴 End Session", use_container_width=True):
                 end_session(match_id)
@@ -295,9 +293,6 @@ def matchmaking_page():
 
         st.divider()
 
-        # =====================================================
-        # 💬 LIVE CHAT (RESTORED ✅)
-        # =====================================================
         st.markdown("### 💬 Live Learning Room")
         for s, m in load_msgs(match_id):
             st.markdown(f"**{s}:** {m}")
@@ -308,9 +303,6 @@ def matchmaking_page():
                 send_msg(match_id, user["name"], msg)
                 st.rerun()
 
-        # =====================================================
-        # 📂 FILE UPLOADS (RESTORED ✅)
-        # =====================================================
         st.divider()
         st.markdown("### 📂 Shared Resources")
         with st.form("file_form"):
@@ -323,9 +315,6 @@ def matchmaking_page():
             with open(p, "rb") as file:
                 st.download_button(n, file, use_container_width=True)
 
-        # =====================================================
-        # ⭐ RATING → SUMMARY
-        # =====================================================
         if st.session_state.session_ended and not st.session_state.show_summary:
             show_rating_ui(match_id)
 
