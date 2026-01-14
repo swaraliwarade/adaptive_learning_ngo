@@ -145,7 +145,7 @@ def generate_quiz_from_chat(match_id):
     return questions
 
 def render_practice_quiz(match_id):
-    st.subheader("🧠 Practice Quiz")
+    st.subheader("✎ Practice Quiz")
 
     if "quiz_questions" not in st.session_state:
         st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
@@ -300,18 +300,19 @@ def matchmaking_page():
             with open(p, "rb") as file:
                 st.download_button(n, file)
 
-        if st.button("🔴 End Session"):
+        if st.button("End Session"):
             end_session(match_id)
 
         return
 
     # ================= POST SESSION =================
     if st.session_state.session_ended:
-        st.subheader("✅ Session Completed")
+        st.subheader("✓ Session Completed")
 
         col1, col2 = st.columns(2)
-        if col1.button("🧠 Practice on this topic"):
+        if col1.button("✎ Practice on this topic"):
             render_practice_quiz(st.session_state.current_match_id)
 
-        if col2.button("🔁 Back to Matchmaking"):
+        if col2.button("⬌ Back to Matchmaking"):
             reset_to_matchmaking()
+
