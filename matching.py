@@ -3,8 +3,8 @@ import time
 from database import cursor, conn
 from ai_helper import ask_ai
 
-SESSION_TIMEOUT_SEC = 60 * 60
-REFRESH_INTERVAL_MS = 3000  # 3 seconds
+SESSION_TIMEOUT_SEC = 60 * 60   # 1 hour
+POLL_INTERVAL_SEC = 3           # real-time polling
 
 # =========================================================
 # HELPERS
@@ -27,7 +27,8 @@ def init_state():
         "show_quiz": False,
         "quiz_raw": "",
         "quiz_answers": {},
-        "ai_chat": []
+        "ai_chat": [],
+        "last_poll": 0
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -58,19 +59,15 @@ def normalize_match(m):
     return None
 
 # =========================================================
-# REAL-TIME PARTNER DETECTION
+# REAL-TIME CHECKS (NO AUTOREFRESH)
 # =========================================================
-def check_partner_joined(match_id):
-    cursor.execute("""
-        SELECT last_seen FROM profiles
-        WHERE match_id=? AND user_id!=?
-    """, (match_id, st.session_state.user_id))
-    row = cursor.fetchone()
-    return bool(row and (now() - (row[0] or 0)) <= 10)
+def should_poll():
+    return now() - st.session_state.last_poll >= POLL_INTERVAL_SEC
 
-# =========================================================
-# REAL-TIME MATCH DETECTION
-# =========================================================
+def poll_tick():
+    st.session_state.last_poll = now()
+    st.experimental_rerun()
+
 def check_if_matched():
     cursor.execute("""
         SELECT match_id FROM profiles
@@ -81,7 +78,15 @@ def check_if_matched():
         st.session_state.current_match_id = row[0]
         st.session_state.just_matched = True
         st.session_state.session_start_time = now()
-        st.rerun()
+        st.experimental_rerun()
+
+def check_partner_joined(match_id):
+    cursor.execute("""
+        SELECT last_seen FROM profiles
+        WHERE match_id=? AND user_id!=?
+    """, (match_id, st.session_state.user_id))
+    row = cursor.fetchone()
+    return bool(row and (now() - (row[0] or 0)) <= 10)
 
 # =========================================================
 # MATCHING LOGIC
@@ -158,9 +163,6 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # 🔁 AUTO REFRESH (REAL-TIME ENGINE)
-    st.autorefresh(interval=REFRESH_INTERVAL_MS, key="match_refresh")
-
     # Ensure user is available
     cursor.execute("""
         UPDATE profiles
@@ -169,8 +171,10 @@ def matchmaking_page():
     """, (st.session_state.user_id,))
     conn.commit()
 
-    # 🔎 Detect if matched by other user
-    check_if_matched()
+    # 🔁 Real-time polling (SAFE)
+    if should_poll():
+        check_if_matched()
+        poll_tick()
 
     st.title("🤝 Study Matchmaking")
 
@@ -178,14 +182,13 @@ def matchmaking_page():
     st.markdown("### 🤖 AI Study Assistant")
     ai_q = st.text_input("Ask AI anything")
     if st.button("Ask AI") and ai_q:
-        reply = ask_ai(ai_q)
-        st.session_state.ai_chat.append((ai_q, reply))
+        st.session_state.ai_chat.append((ai_q, ask_ai(ai_q)))
     for q, a in st.session_state.ai_chat[-3:]:
         st.markdown(f"**You:** {q}")
         st.markdown(f"**AI:** {a}")
     st.divider()
 
-    # 🎈 MATCH CONFIRMED
+    # 🎈 MATCH CONFIRMATION
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
@@ -200,7 +203,7 @@ def matchmaking_page():
 
         if not st.session_state.partner_joined:
             if check_partner_joined(st.session_state.current_match_id):
-                st.toast("🎉 Your study partner joined!", icon="🔔")
+                st.toast("🎉 Partner joined!", icon="🔔")
                 st.session_state.partner_joined = True
 
         st.subheader("💬 Study Chat")
@@ -225,72 +228,13 @@ def matchmaking_page():
             st.session_state.session_ended = True
             st.session_state.current_match_id = None
             st.session_state.session_start_time = None
-            st.rerun()
+            st.experimental_rerun()
         return
 
     # =====================================================
-    # POST SESSION (UNCHANGED)
+    # MATCHMAKING VIEW
     # =====================================================
-    if st.session_state.session_ended:
-        st.subheader("📊 Session Summary")
-        st.info(generate_summary(st.session_state.chat_log))
-
-        st.subheader("⭐ Rate Partner")
-        rating = st.slider("Rating", 1, 5, 3)
-        if st.button("Submit Rating"):
-            cursor.execute("""
-                INSERT INTO session_ratings
-                (match_id, rater_id, rater_name, rating)
-                VALUES (?,?,?,?)
-            """, (None, st.session_state.user_id,
-                  st.session_state.user_name, rating))
-            conn.commit()
-            st.success("Thanks!")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🧠 Take AI Quiz"):
-                st.session_state.quiz_raw = generate_quiz(st.session_state.chat_log)
-                st.session_state.show_quiz = True
-        with col2:
-            if st.button("🔁 Back to Matchmaking"):
-                st.session_state.session_ended = False
-                st.session_state.chat_log.clear()
-                st.session_state.show_quiz = False
-                st.rerun()
-
-        if st.session_state.show_quiz:
-            st.subheader("📝 AI Quiz")
-            lines = st.session_state.quiz_raw.splitlines()
-            correct = {}
-            qn = 0
-            for l in lines:
-                if l.startswith("Answer"):
-                    correct[qn] = l.split(":")[1].strip()
-            qn = 0
-            for l in lines:
-                if l.startswith("Q"):
-                    qn += 1
-                    st.markdown(f"**{l}**")
-                    st.session_state.quiz_answers[qn] = st.radio(
-                        f"Q{qn}", ["A", "B", "C", "D"], key=f"q{qn}"
-                    )
-            if st.button("Submit Quiz"):
-                score = sum(
-                    1 for q, a in st.session_state.quiz_answers.items()
-                    if a == correct.get(q)
-                )
-                if score == len(correct):
-                    st.balloons()
-                    st.success("🎉 Perfect!")
-                else:
-                    st.error("❌ Try again")
-        return
-
-    # =====================================================
-    # MATCHMAKING VIEW (AUTO)
-    # =====================================================
-    st.subheader("🔍 Finding best study partner…")
+    st.subheader("🔍 Finding a study partner…")
 
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
@@ -318,10 +262,7 @@ def matchmaking_page():
         return
 
     m = normalize_match(m)
-    st.info(
-        f"**Match found:** {m['name']} ({s}%)\n\n"
-        f"Waiting for confirmation…"
-    )
+    st.info(f"**Match found:** {m['name']} ({s}%)")
 
     if st.button("✅ Confirm Match", use_container_width=True):
         sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
