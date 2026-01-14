@@ -44,8 +44,14 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+    # Existing migration
     add_column_if_missing(
         "ALTER TABLE profiles ADD COLUMN class_level INTEGER"
+    )
+
+    # ✅ REQUIRED FOR LIVE SESSION PRESENCE
+    add_column_if_missing(
+        "ALTER TABLE profiles ADD COLUMN last_seen INTEGER"
     )
 
     # -------------------------
@@ -113,7 +119,7 @@ def init_db():
     """)
 
     # -------------------------
-    # 🔁 REMATCH REQUESTS (NEW ✅)
+    # 🔁 REMATCH REQUESTS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS rematch_requests (
