@@ -3,7 +3,8 @@ import time
 from database import cursor, conn
 from ai_helper import ask_ai
 
-SESSION_TIMEOUT_SEC = 60 * 60  # 1 hour
+SESSION_TIMEOUT_SEC = 60 * 60
+REFRESH_INTERVAL_MS = 3000  # 3 seconds
 
 # =========================================================
 # HELPERS
@@ -57,7 +58,7 @@ def normalize_match(m):
     return None
 
 # =========================================================
-# REAL-TIME PARTNER CHECK
+# REAL-TIME PARTNER DETECTION
 # =========================================================
 def check_partner_joined(match_id):
     cursor.execute("""
@@ -65,9 +66,22 @@ def check_partner_joined(match_id):
         WHERE match_id=? AND user_id!=?
     """, (match_id, st.session_state.user_id))
     row = cursor.fetchone()
-    if not row:
-        return False
-    return (now() - (row[0] or 0)) <= 10  # active in last 10 sec
+    return bool(row and (now() - (row[0] or 0)) <= 10)
+
+# =========================================================
+# REAL-TIME MATCH DETECTION
+# =========================================================
+def check_if_matched():
+    cursor.execute("""
+        SELECT match_id FROM profiles
+        WHERE user_id=? AND status='matched'
+    """, (st.session_state.user_id,))
+    row = cursor.fetchone()
+    if row and not st.session_state.current_match_id:
+        st.session_state.current_match_id = row[0]
+        st.session_state.just_matched = True
+        st.session_state.session_start_time = now()
+        st.rerun()
 
 # =========================================================
 # MATCHING LOGIC
@@ -144,7 +158,10 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # Ensure availability
+    # 🔁 AUTO REFRESH (REAL-TIME ENGINE)
+    st.autorefresh(interval=REFRESH_INTERVAL_MS, key="match_refresh")
+
+    # Ensure user is available
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
@@ -152,9 +169,12 @@ def matchmaking_page():
     """, (st.session_state.user_id,))
     conn.commit()
 
+    # 🔎 Detect if matched by other user
+    check_if_matched()
+
     st.title("🤝 Study Matchmaking")
 
-    # 🤖 AI CHATBOT (ALWAYS AVAILABLE)
+    # 🤖 AI CHATBOT
     st.markdown("### 🤖 AI Study Assistant")
     ai_q = st.text_input("Ask AI anything")
     if st.button("Ask AI") and ai_q:
@@ -165,7 +185,7 @@ def matchmaking_page():
         st.markdown(f"**AI:** {a}")
     st.divider()
 
-    # 🎈 Match animation
+    # 🎈 MATCH CONFIRMED
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
@@ -174,27 +194,17 @@ def matchmaking_page():
     # ACTIVE SESSION
     # =====================================================
     if st.session_state.current_match_id and not st.session_state.session_ended:
-        if not st.session_state.session_start_time:
-            st.session_state.session_start_time = now()
-
         elapsed = now() - st.session_state.session_start_time
         remaining = max(0, SESSION_TIMEOUT_SEC - elapsed)
+        st.success(f"⏱️ Time left: {remaining//60}m {remaining%60}s")
 
-        st.success(f"⏱️ Session Time Left: {remaining//60} min {remaining%60} sec")
-
-        if remaining == 0:
-            st.warning("Session timed out")
-            st.session_state.session_ended = True
-            st.rerun()
-
-        # 🔔 Real-time join detection
         if not st.session_state.partner_joined:
             if check_partner_joined(st.session_state.current_match_id):
-                st.toast("🎉 Your study partner has joined!", icon="🔔")
+                st.toast("🎉 Your study partner joined!", icon="🔔")
                 st.session_state.partner_joined = True
 
         st.subheader("💬 Study Chat")
-        msg = st.text_input("Type message")
+        msg = st.text_input("Message")
         if st.button("Send") and msg:
             st.session_state.chat_log.append(msg)
             cursor.execute(
@@ -203,8 +213,6 @@ def matchmaking_page():
             )
             conn.commit()
             st.success("Sent")
-
-        st.divider()
 
         if st.button("🛑 End Session", use_container_width=True):
             cursor.execute("""
@@ -280,9 +288,9 @@ def matchmaking_page():
         return
 
     # =====================================================
-    # MATCHMAKING (UNCHANGED)
+    # MATCHMAKING VIEW (AUTO)
     # =====================================================
-    st.subheader("🔍 Find a Study Partner")
+    st.subheader("🔍 Finding best study partner…")
 
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
@@ -304,36 +312,22 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    if st.button("🔍 Find Best Match", use_container_width=True):
-        m, s = find_best_match(user)
-        if not m:
-            st.info("No match available")
-            return
-        st.session_state.proposed_match = m
-        st.session_state.proposed_score = s
+    m, s = find_best_match(user)
+    if not m:
+        st.info("Waiting for a compatible partner…")
+        return
 
-    if st.session_state.proposed_match:
-        m = normalize_match(st.session_state.proposed_match)
-        if not m:
-            st.session_state.proposed_match = None
-            return
-        st.info(
-            f"**Name:** {m['name']}\n\n"
-            f"**Role:** {m['role']}\n\n"
-            f"**Grade:** {m['grade']}\n\n"
-            f"**Compatibility:** {st.session_state.proposed_score}"
-        )
-        if st.button("✅ Confirm Match", use_container_width=True):
-            sid = f"{min(int(user['user_id']), int(m['user_id']))}-{max(int(user['user_id']), int(m['user_id']))}-{now()}"
-            cursor.execute("""
-                UPDATE profiles
-                SET status='matched', match_id=?
-                WHERE user_id IN (?,?)
-            """, (sid, user["user_id"], m["user_id"]))
-            conn.commit()
+    m = normalize_match(m)
+    st.info(
+        f"**Match found:** {m['name']} ({s}%)\n\n"
+        f"Waiting for confirmation…"
+    )
 
-            st.session_state.current_match_id = sid
-            st.session_state.just_matched = True
-            st.session_state.session_start_time = now()
-            st.session_state.proposed_match = None
-            st.rerun()
+    if st.button("✅ Confirm Match", use_container_width=True):
+        sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
+        cursor.execute("""
+            UPDATE profiles
+            SET status='matched', match_id=?
+            WHERE user_id IN (?,?)
+        """, (sid, user["user_id"], m["user_id"]))
+        conn.commit()
