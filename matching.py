@@ -108,7 +108,6 @@ def end_session(match_id):
 # ⭐ RATING UI
 # =========================================================
 def show_rating_ui(match_id):
-
     cursor.execute("""
         SELECT 1 FROM session_ratings
         WHERE match_id=? AND rater_id=?
@@ -118,14 +117,14 @@ def show_rating_ui(match_id):
         st.info("You already rated this session.")
         return
 
-    st.markdown("### ⭐ Rate Your Session")
+    st.subheader("⭐ Rate Your Session")
 
     if "rating" not in st.session_state:
         st.session_state.rating = 0
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"star_{i}"):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -157,21 +156,17 @@ def matchmaking_page():
         if k not in st.session_state:
             st.session_state[k] = False
 
-    st.markdown("""
-    <div style="padding:1.5rem;border-radius:16px;
-    background:linear-gradient(135deg,#4f46e5,#6366f1);color:white;">
-        <h2>Peer Learning Session</h2>
-        <p>Match, learn, and collaborate</p>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # -----------------------------------------------------
+    # USER PROFILE
+    # -----------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
         FROM profiles WHERE user_id=?
     """, (st.session_state.user_id,))
     row = cursor.fetchone()
+
     if not row:
-        st.warning("Complete your profile first.")
+        st.warning("Please complete your profile first.")
         return
 
     role, grade, time_slot, strong, weak, teaches, match_id = row
@@ -186,82 +181,103 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
+    # =====================================================
     # 🤖 AI ASSISTANT
+    # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai"):
-        q = st.text_input("Ask anything")
+    with st.form("ai_form"):
+        q = st.text_input("Ask a concept or doubt")
         if st.form_submit_button("Ask") and q:
             st.success(ask_ai(q))
 
     st.divider()
 
+    # =====================================================
     # MATCHING
+    # =====================================================
     if not match_id:
         if st.button("Find Best Match", use_container_width=True):
             m, s = find_best(user, load_profiles())
             if m:
-                st.session_state.match = m
-                st.session_state.score = s
+                st.session_state.proposed_match = m
+                st.session_state.proposed_score = s
 
-        if "match" in st.session_state:
-            m = st.session_state.match
-            st.markdown(f"### Suggested Match: **{m['name']}**")
+        if st.session_state.get("proposed_match"):
+            m = st.session_state.proposed_match
+            st.markdown("### 🔍 Suggested Match")
+            st.write(f"**Name:** {m['name']}")
+            st.write(f"**Role:** {m['role']}")
+            st.write(f"**Grade:** {m['grade']}")
+            st.write(f"**Time Slot:** {m['time']}")
+            st.write(f"**Compatibility Score:** {st.session_state.proposed_score}")
+
             if st.button("Confirm Match", use_container_width=True):
                 mid = f"{user['user_id']}-{m['user_id']}"
                 cursor.execute("""
-                    UPDATE profiles SET status='matched', match_id=?
+                    UPDATE profiles
+                    SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
                 """, (mid, user["user_id"], m["user_id"]))
                 conn.commit()
+
+                st.session_state.partner = m
+                st.session_state.partner_score = st.session_state.proposed_score
                 st.session_state.celebrated = False
                 st.rerun()
         return
 
-    # 🎉 CONFETTI + 🔊 SOUND
+    # =====================================================
+    # 🎈 BALLOONS + MATCH DETAILS
+    # =====================================================
     if not st.session_state.celebrated:
         st.success("🎉 You're matched! Welcome to your live session.")
-
-        st.components.v1.html("""
-        <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-        <script>
-          confetti({ particleCount: 200, spread: 120, origin: { y: 0.6 }});
-        </script>
-        """, height=0)
-
-        st.audio(
-            "https://actions.google.com/sounds/v1/ui/confirmation.ogg",
-            autoplay=True
-        )
-
+        st.balloons()
         st.session_state.celebrated = True
 
-    # 🔴 END SESSION BUTTON (CENTERED)
-    st.markdown("<br>", unsafe_allow_html=True)
+    partner = st.session_state.get("partner")
+
+    if partner:
+        st.markdown("### 🤝 Your Learning Partner")
+        st.write(f"**Name:** {partner['name']}")
+        st.write(f"**Role:** {partner['role']}")
+        st.write(f"**Grade:** {partner['grade']}")
+        st.write(f"**Time Slot:** {partner['time']}")
+        st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
+        st.write(f"**Their Strong Subjects:** {', '.join(partner['strong'])}")
+        st.write(f"**Their Weak Subjects:** {', '.join(partner['weak'])}")
+
+    # =====================================================
+    # 🔴 END SESSION (CENTERED)
+    # =====================================================
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         if not st.session_state.session_ended:
-            if st.button("End Session", use_container_width=True):
+            if st.button("🔴 End Session", use_container_width=True):
                 end_session(match_id)
                 st.session_state.session_ended = True
 
     st.divider()
 
+    # =====================================================
     # LIVE CHAT
-    st.markdown("### Live Learning Room")
+    # =====================================================
+    st.markdown("### 💬 Live Learning Room")
     for s, m in load_msgs(match_id):
         st.markdown(f"**{s}:** {m}")
 
-    with st.form("chat"):
-        msg = st.text_input("Message")
+    with st.form("chat_form"):
+        msg = st.text_input("Type your message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, user["name"], msg)
             st.rerun()
 
-    # FILES
+    # =====================================================
+    # FILE SHARING
+    # =====================================================
     st.divider()
-    st.markdown("### Shared Resources")
-    with st.form("files"):
-        f = st.file_uploader("Upload")
+    st.markdown("### 📂 Shared Resources")
+    with st.form("file_form"):
+        f = st.file_uploader("Upload file")
         if st.form_submit_button("Upload") and f:
             save_file(match_id, user["name"], f)
             st.rerun()
@@ -270,6 +286,8 @@ def matchmaking_page():
         with open(p, "rb") as file:
             st.download_button(n, file, use_container_width=True)
 
-    # ⭐ RATING AFTER END
+    # =====================================================
+    # ⭐ RATING
+    # =====================================================
     if st.session_state.session_ended and not st.session_state.rating_submitted:
         show_rating_ui(match_id)
