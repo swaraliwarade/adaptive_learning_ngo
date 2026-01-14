@@ -106,7 +106,7 @@ def end_session(match_id):
     conn.commit()
 
 # =========================================================
-# ⭐ RATING UI
+# ⭐ RATING
 # =========================================================
 def show_rating_ui(match_id):
 
@@ -117,7 +117,10 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
+        if cols[i].button(
+            "⭐" if i < st.session_state.rating else "☆",
+            key=f"rate_{i}"
+        ):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -138,20 +141,7 @@ def show_rating_ui(match_id):
         conn.commit()
 
         st.success("Thank you for your feedback! 🎉")
-        st.session_state.session_rated = True
         reset_to_matchmaking()
-
-# =========================================================
-# 📜 MATCH HISTORY
-# =========================================================
-def load_match_history(user_id):
-    cursor.execute("""
-        SELECT match_id, rating
-        FROM session_ratings
-        WHERE rater_id=?
-        ORDER BY rowid DESC
-    """, (user_id,))
-    return cursor.fetchall()
 
 # =========================================================
 # 🔁 RESET TO MATCHMAKING
@@ -162,14 +152,12 @@ def reset_to_matchmaking():
         "partner",
         "partner_score",
         "session_ended",
-        "session_rated",
         "celebrated",
         "rating",
         "proposed_match",
         "proposed_score"
     ]:
         st.session_state.pop(k, None)
-
     st.rerun()
 
 # =========================================================
@@ -181,7 +169,6 @@ def matchmaking_page():
     for k, v in {
         "celebrated": False,
         "session_ended": False,
-        "session_rated": False,
         "partner": None,
         "partner_score": None,
         "current_match_id": None
@@ -211,6 +198,18 @@ def matchmaking_page():
         "strong": (teaches or strong or "").split(","),
         "weak": (weak or "").split(",")
     }
+
+    # =====================================================
+    # 🔔 REMATCH ACCEPTED NOTICE
+    # =====================================================
+    cursor.execute("""
+        SELECT 1 FROM rematch_requests
+        WHERE status='accepted'
+        AND (from_user=? OR to_user=?)
+    """, (st.session_state.user_id, st.session_state.user_id))
+
+    if cursor.fetchone():
+        st.info("🔁 A re-match request was accepted. You can match again now!")
 
     # =====================================================
     # 🤖 AI ASSISTANT
@@ -259,7 +258,6 @@ def matchmaking_page():
                 st.session_state.partner_score = st.session_state.proposed_score
                 st.session_state.celebrated = False
                 st.session_state.session_ended = False
-                st.session_state.session_rated = False
                 st.session_state.rating = 0
 
                 st.rerun()
@@ -317,22 +315,5 @@ def matchmaking_page():
             with open(p, "rb") as file:
                 st.download_button(n, file, use_container_width=True)
 
-        if st.session_state.session_ended and not st.session_state.session_rated:
+        if st.session_state.session_ended:
             show_rating_ui(match_id)
-
-    # =====================================================
-    # 📜 MATCH HISTORY
-    # =====================================================
-    st.divider()
-    st.markdown("## 📜 Match History")
-
-    history = load_match_history(st.session_state.user_id)
-
-    if not history:
-        st.info("No past sessions yet.")
-    else:
-        for mid, rating in history:
-            with st.expander(f"Session {mid} • ⭐ {rating}/5"):
-                st.write(f"**Rating Given:** {rating}/5")
-
-
