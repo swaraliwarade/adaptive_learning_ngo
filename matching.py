@@ -5,7 +5,7 @@ from database import cursor, conn
 from ai_helper import ask_ai
 
 UPLOAD_DIR = "uploads/sessions"
-MATCH_THRESHOLD = 20  # lowered safely
+MATCH_THRESHOLD = 20
 
 # =========================================================
 # LOAD USERS
@@ -135,60 +135,14 @@ Discussion:
     return questions
 
 # =========================================================
-# PRACTICE QUIZ UI
-# =========================================================
-def render_practice_quiz(match_id):
-    st.markdown("## 🧠 Practice Quiz (AI Generated)")
-
-    if "quiz_questions" not in st.session_state:
-        st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
-        st.session_state.quiz_answers = {}
-        st.session_state.quiz_submitted = False
-
-    if not st.session_state.quiz_questions:
-        st.info("Not enough discussion to generate quiz.")
-        return
-
-    for i, q in enumerate(st.session_state.quiz_questions):
-        st.markdown(f"**Q{i+1}. {q['question']}**")
-        st.session_state.quiz_answers[i] = st.radio(
-            "Choose",
-            list(q["options"].keys()),
-            format_func=lambda x: f"{x}) {q['options'][x]}",
-            key=f"quiz_{i}"
-        )
-
-    if not st.session_state.quiz_submitted:
-        if st.button("Submit Quiz", use_container_width=True):
-            st.session_state.quiz_submitted = True
-
-    if st.session_state.quiz_submitted:
-        score = sum(
-            1 for i, q in enumerate(st.session_state.quiz_questions)
-            if st.session_state.quiz_answers.get(i) == q["answer"]
-        )
-        total = len(st.session_state.quiz_questions)
-
-        st.metric("Score", f"{score}/{total}")
-
-        if score == total:
-            st.balloons()
-        elif score == 0:
-            st.error("All answers incorrect")
-            st.snow()
-
-        if st.button("Back to Matchmaking"):
-            reset_to_matchmaking()
-
-# =========================================================
 # RESET
 # =========================================================
 def reset_to_matchmaking():
     for k in [
         "current_match_id", "partner", "partner_score",
-        "session_ended", "celebrated",
+        "session_ended", "celebrated", "session_start",
         "quiz_questions", "quiz_answers", "quiz_submitted",
-        "proposed_match", "proposed_score", "session_start"
+        "proposed_match", "proposed_score"
     ]:
         st.session_state.pop(k, None)
     st.rerun()
@@ -198,18 +152,38 @@ def reset_to_matchmaking():
 # =========================================================
 def matchmaking_page():
 
+    # ------------------------------
+    # 🔄 DB SYNC (CRITICAL FIX)
+    # ------------------------------
+    cursor.execute("""
+        SELECT match_id
+        FROM profiles
+        WHERE user_id=?
+    """, (st.session_state.user_id,))
+    row = cursor.fetchone()
+
+    if row and row[0]:
+        if st.session_state.get("current_match_id") != row[0]:
+            st.session_state.current_match_id = row[0]
+            st.session_state.session_start = time.time()
+            st.session_state.celebrated = False
+
+    # ------------------------------
+    # INIT STATE
+    # ------------------------------
     for k, v in {
         "current_match_id": None,
         "partner": None,
         "partner_score": None,
         "proposed_match": None,
         "proposed_score": None,
-        "session_ended": False
+        "session_ended": False,
+        "celebrated": False
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # 🤖 AI ASSISTANT (UNCHANGED)
+    # 🤖 AI ASSISTANT
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
         q = st.text_input("Ask a question")
@@ -271,21 +245,19 @@ def matchmaking_page():
                     WHERE user_id IN (?,?)
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
-
-                st.session_state.current_match_id = session_id
-                st.session_state.partner = m
-                st.session_state.partner_score = st.session_state.proposed_score
-                st.session_state.session_start = time.time()
                 st.rerun()
+
         return
 
     # -----------------------------------------------------
-    # LIVE SESSION
+    # LIVE SESSION (BOTH USERS SEE THIS)
     # -----------------------------------------------------
     match_id = st.session_state.current_match_id
 
-    st.success("🎉 You're matched! Live session started.")
-    st.balloons()
+    if not st.session_state.celebrated:
+        st.success("🎉 You're matched! Live session started.")
+        st.balloons()
+        st.session_state.celebrated = True
 
     elapsed = int(time.time() - st.session_state.session_start)
     st.caption(f"⏱ Session Time: {elapsed // 60}m {elapsed % 60}s")
@@ -315,7 +287,12 @@ def matchmaking_page():
 
     if not st.session_state.session_ended:
         if st.button("🔴 End Session", use_container_width=True):
-            end_session(match_id)
+            cursor.execute("""
+                UPDATE profiles
+                SET status='waiting', match_id=NULL
+                WHERE match_id=?
+            """, (match_id,))
+            conn.commit()
             st.session_state.session_ended = True
 
     if st.session_state.session_ended:
