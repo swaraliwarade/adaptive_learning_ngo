@@ -257,23 +257,25 @@ def matchmaking_page():
     # =====================================================
     if not st.session_state.celebrated:
         st.success("🎉 You're matched! Welcome to your live session.")
-
         st.components.v1.html("""
         <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
         <script>
-        confetti({
-          particleCount: 180,
-          spread: 100,
-          origin: { y: 0.6 }
-        });
+          confetti({ particleCount: 180, spread: 100, origin: { y: 0.6 } });
         </script>
-
         <audio autoplay>
           <source src="https://actions.google.com/sounds/v1/ui/confirmation.ogg">
         </audio>
         """, height=0)
-
         st.session_state.celebrated = True
+
+    # =====================================================
+    # 🔴 END SESSION BUTTON (FIXED VISIBILITY)
+    # =====================================================
+    end_col1, end_col2 = st.columns([4, 1])
+    with end_col2:
+        if st.button("🔴 End Session", use_container_width=True):
+            end_session(match_id)
+            st.session_state.session_ended = True
 
     # =====================================================
     # LIVE SESSION
@@ -308,12 +310,6 @@ def matchmaking_page():
             )
 
     st.divider()
-
-    if not st.session_state.session_ended:
-        if st.button("End Session", use_container_width=True):
-            end_session(match_id)
-            st.session_state.session_ended = True
-            st.success("Session ended. Please rate your experience below 👇")
 
     if st.session_state.session_ended and not st.session_state.rating_submitted:
         show_rating_ui(match_id)
