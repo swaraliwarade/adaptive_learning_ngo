@@ -154,7 +154,6 @@ def show_rating_ui(match_id):
 # =========================================================
 def matchmaking_page():
 
-    # ---------- SESSION STATE ----------
     for k, v in {
         "session_ended": False,
         "rating_submitted": False,
@@ -203,11 +202,11 @@ def matchmaking_page():
     }
 
     # =====================================================
-    # 🤖 AI STUDY ASSISTANT (RESTORED)
+    # 🤖 AI STUDY ASSISTANT
     # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form", clear_on_submit=True):
-        q = st.text_input("Ask a concept, definition, example, or doubt")
+        q = st.text_input("Ask a concept, definition, or example")
         if st.form_submit_button("Get Help") and q:
             with st.spinner("Thinking..."):
                 st.success(ask_ai(q))
@@ -238,8 +237,7 @@ def matchmaking_page():
             </div>
             """, unsafe_allow_html=True)
 
-            c1, c2 = st.columns(2)
-            if c1.button("Confirm Match", use_container_width=True):
+            if st.button("Confirm Match", use_container_width=True):
                 mid = f"{user['user_id']}-{m['user_id']}"
                 cursor.execute("""
                     UPDATE profiles
@@ -255,15 +253,26 @@ def matchmaking_page():
         return
 
     # =====================================================
-    # 🔊 CELEBRATION SOUND (ONCE)
+    # 🎉 CONFETTI + 🔊 SOUND (ONCE)
     # =====================================================
     if not st.session_state.celebrated:
         st.success("🎉 You're matched! Welcome to your live session.")
+
         st.components.v1.html("""
+        <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+        <script>
+        confetti({
+          particleCount: 180,
+          spread: 100,
+          origin: { y: 0.6 }
+        });
+        </script>
+
         <audio autoplay>
-            <source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg">
+          <source src="https://actions.google.com/sounds/v1/ui/confirmation.ogg">
         </audio>
         """, height=0)
+
         st.session_state.celebrated = True
 
     # =====================================================
