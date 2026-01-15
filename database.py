@@ -1,8 +1,14 @@
 import sqlite3
 
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
 conn = sqlite3.connect("app.db", check_same_thread=False)
 cursor = conn.cursor()
 
+# =========================================================
+# INITIALIZE DATABASE
+# =========================================================
 def init_db():
 
     # -------------------------
@@ -44,8 +50,14 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+    # Existing / legacy
     add_column_if_missing(
         "ALTER TABLE profiles ADD COLUMN class_level INTEGER"
+    )
+
+    # ✅ REQUIRED FOR LIVE PRESENCE
+    add_column_if_missing(
+        "ALTER TABLE profiles ADD COLUMN last_seen INTEGER"
     )
 
     # -------------------------
@@ -102,7 +114,7 @@ def init_db():
     """)
 
     # -------------------------
-    # USER STREAKS (MOVED HERE ✅)
+    # USER STREAKS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_streaks (
@@ -112,4 +124,60 @@ def init_db():
     )
     """)
 
+    # -------------------------
+    # 🔁 REMATCH REQUESTS
+    # -------------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS rematch_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER,
+        to_user INTEGER,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """)
+
+    # =====================================================
+    # 🧠 STUDY SESSIONS (REQUIRED)
+    # =====================================================
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT UNIQUE,
+        user1_id INTEGER,
+        user2_id INTEGER,
+        started_at INTEGER,
+        ended_at INTEGER,
+        summary TEXT
+    )
+    """)
+
+    # =====================================================
+    # 🧠 SESSION QUIZ ATTEMPTS (OPTIONAL BUT FUTURE-PROOF)
+    # =====================================================
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS session_quizzes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT,
+        user_id INTEGER,
+        score INTEGER,
+        total INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """)
+
+    # =====================================================
+    # ⚡ PERFORMANCE INDEXES
+    # =====================================================
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_profiles_match_id ON profiles(match_id)"
+    )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_match_id ON messages(match_id)"
+    )
+
+    # -------------------------
+    # FINAL COMMIT
+    # -------------------------
     conn.commit()
