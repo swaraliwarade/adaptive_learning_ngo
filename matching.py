@@ -163,7 +163,6 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # Ensure user is available
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
@@ -171,7 +170,6 @@ def matchmaking_page():
     """, (st.session_state.user_id,))
     conn.commit()
 
-    # 🔁 Real-time polling (SAFE)
     if should_poll():
         check_if_matched()
         poll_tick()
@@ -188,7 +186,6 @@ def matchmaking_page():
         st.markdown(f"**AI:** {a}")
     st.divider()
 
-    # 🎈 MATCH CONFIRMATION
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
@@ -262,7 +259,17 @@ def matchmaking_page():
         return
 
     m = normalize_match(m)
+
     st.info(f"**Match found:** {m['name']} ({s}%)")
+
+    # 🔍 NEW: SHOW PARTNER DETAILS BEFORE CONFIRMATION
+    with st.expander("📋 View partner details"):
+        st.markdown(f"**Name:** {m['name']}")
+        st.markdown(f"**Role:** {m['role']}")
+        st.markdown(f"**Grade:** {m['grade']}")
+        st.markdown(f"**Available Time:** {m['time']}")
+        st.markdown(f"**Strong Subjects:** {', '.join(m['strong']) if m['strong'] else '—'}")
+        st.markdown(f"**Weak Subjects:** {', '.join(m['weak']) if m['weak'] else '—'}")
 
     if st.button("✅ Confirm Match", use_container_width=True):
         sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
