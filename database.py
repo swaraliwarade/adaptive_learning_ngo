@@ -24,11 +24,11 @@ def init_db():
     """)
 
     # -------------------------
-    # PROFILES
+    # PROFILES (FIXED)
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
-        user_id INTEGER UNIQUE,
+        user_id INTEGER PRIMARY KEY,
         role TEXT,
         grade TEXT,
         time TEXT,
