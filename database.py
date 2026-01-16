@@ -7,6 +7,13 @@ conn = sqlite3.connect("app.db", check_same_thread=False)
 cursor = conn.cursor()
 
 # =========================================================
+# SAFE COLUMN CHECK
+# =========================================================
+def column_exists(table, column):
+    cursor.execute(f"PRAGMA table_info({table})")
+    return column in [row[1] for row in cursor.fetchall()]
+
+# =========================================================
 # INITIALIZE DATABASE
 # =========================================================
 def init_db():
@@ -24,7 +31,7 @@ def init_db():
     """)
 
     # -------------------------
-    # PROFILES (FIXED)
+    # PROFILES
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
@@ -44,24 +51,18 @@ def init_db():
     # -------------------------
     # SAFE MIGRATIONS
     # -------------------------
-    def add_column_if_missing(sql):
-        try:
-            cursor.execute(sql)
-        except sqlite3.OperationalError:
-            pass
+    if not column_exists("profiles", "class_level"):
+        cursor.execute(
+            "ALTER TABLE profiles ADD COLUMN class_level INTEGER"
+        )
 
-    # Existing / legacy
-    add_column_if_missing(
-        "ALTER TABLE profiles ADD COLUMN class_level INTEGER"
-    )
-
-    # ✅ REQUIRED FOR LIVE PRESENCE
-    add_column_if_missing(
-        "ALTER TABLE profiles ADD COLUMN last_seen INTEGER"
-    )
+    if not column_exists("profiles", "last_seen"):
+        cursor.execute(
+            "ALTER TABLE profiles ADD COLUMN last_seen INTEGER"
+        )
 
     # -------------------------
-    # CHAT MESSAGES (LIVE CHAT READY)
+    # CHAT MESSAGES
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS messages (
@@ -70,14 +71,14 @@ def init_db():
         sender TEXT,
         message TEXT,
         created_at TEXT DEFAULT (datetime('now')),
-        created_ts INTEGER DEFAULT (strftime('%s','now'))
+        created_ts INTEGER
     )
     """)
 
-    # 🔁 SAFE MIGRATION FOR EXISTING DBs
-    add_column_if_missing(
-        "ALTER TABLE messages ADD COLUMN created_ts INTEGER"
-    )
+    if not column_exists("messages", "created_ts"):
+        cursor.execute(
+            "ALTER TABLE messages ADD COLUMN created_ts INTEGER"
+        )
 
     # -------------------------
     # SESSION FILES
@@ -94,7 +95,7 @@ def init_db():
     """)
 
     # -------------------------
-    # LEGACY RATINGS (KEEP)
+    # LEGACY RATINGS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ratings (
@@ -106,7 +107,7 @@ def init_db():
     """)
 
     # -------------------------
-    # SESSION RATINGS (NEW)
+    # SESSION RATINGS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS session_ratings (
@@ -131,7 +132,7 @@ def init_db():
     """)
 
     # -------------------------
-    # 🔁 REMATCH REQUESTS
+    # REMATCH REQUESTS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS rematch_requests (
@@ -143,9 +144,9 @@ def init_db():
     )
     """)
 
-    # =====================================================
-    # 🧠 STUDY SESSIONS
-    # =====================================================
+    # -------------------------
+    # STUDY SESSIONS
+    # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,9 +159,9 @@ def init_db():
     )
     """)
 
-    # =====================================================
-    # 🧠 SESSION QUIZ ATTEMPTS
-    # =====================================================
+    # -------------------------
+    # SESSION QUIZZES
+    # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS session_quizzes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,9 +173,9 @@ def init_db():
     )
     """)
 
-    # =====================================================
-    # ⚡ PERFORMANCE INDEXES
-    # =====================================================
+    # -------------------------
+    # INDEXES (SAFE)
+    # -------------------------
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_profiles_match_id ON profiles(match_id)"
     )
