@@ -46,75 +46,82 @@ def sync_db_schema():
 sync_db_schema()
 
 # =========================================================
-# EMERALD THEME + RIPPLE ANIMATION CSS
+# FORCED EMERALD THEME + RIPPLE ANIMATION
 # =========================================================
 st.markdown("""
     <style>
-    /* Force Background */
-    .stApp { background-color: #f9fafb !important; }
-
-    /* ALL BUTTONS: Emerald + Ripple Effect */
-    button, 
-    .stButton > button, 
-    .stDownloadButton > button,
-    button[kind="primary"],
-    button[kind="secondary"] {
+    /* 1. Global emerald override for all Streamlit buttons */
+    /* This targets the specific class seen in your screenshot */
+    div.stButton > button, div.stDownloadButton > button {
         background-color: #10b981 !important;
         color: white !important;
         border: none !important;
-        border-radius: 8px !important;
-        padding: 0.6rem 1.2rem !important;
+        padding: 0.75rem 1.5rem !important;
+        border-radius: 10px !important;
         font-weight: 700 !important;
+        font-size: 1rem !important;
         width: 100% !important;
-        position: relative !important;
-        overflow: hidden !important;
-        transition: background 0.4s !important;
-        background-position: center !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+        transition: all 0.3s ease !important;
+        position: relative;
+        overflow: hidden;
     }
 
-    /* Ripple Animation on Click/Hover */
-    button:hover, .stButton > button:hover {
-        background: #059669 radial-gradient(circle, transparent 1%, #059669 1%) center/15000% !important;
-        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4) !important;
+    /* 2. Ripple effect animation using a radial gradient background */
+    div.stButton > button:active::after {
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        background-image: radial-gradient(circle, #fff 10%, transparent 10.01%);
+        background-repeat: no-repeat;
+        background-position: 50%;
+        transform: scale(10, 10);
+        opacity: 0;
+        transition: transform .5s, opacity 1s;
     }
 
-    button:active, .stButton > button:active {
-        background-color: #34d399 !important;
-        background-size: 100% !important;
-        transition: background 0s !important;
+    div.stButton > button:active {
+        background-color: #059669 !important;
+        transform: scale(0.98) !important;
     }
 
-    /* Emerald Cards */
+    div.stButton > button:hover {
+        background-color: #059669 !important;
+        box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.4) !important;
+        border-color: #10b981 !important;
+    }
+
+    /* 3. Aesthetic Emerald Card for the interface */
     .emerald-card {
         background: #ffffff !important;
-        padding: 25px !important;
-        border-radius: 12px !important;
-        border-left: 6px solid #10b981 !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
-        margin-bottom: 20px;
+        padding: 30px !important;
+        border-radius: 16px !important;
+        border: 1px solid #d1fae5 !important;
+        border-top: 10px solid #10b981 !important;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05) !important;
+        margin-bottom: 25px;
     }
 
-    /* Chat Bubbles */
+    h1, h2, h3 {
+        color: #064e3b !important;
+    }
+    
     .chat-container {
-        background: white !important;
-        border: 1px solid #e5e7eb !important;
-        border-radius: 12px !important;
+        background: #f0fdf4 !important;
+        border-radius: 12px;
         padding: 15px;
         height: 400px;
         overflow-y: auto;
+        border: 1px solid #b91c1c00;
     }
-
-    .msg-me { background: #10b981 !important; color: white !important; padding: 10px; border-radius: 10px; margin-bottom: 8px; margin-left: 20%; text-align: right; }
-    .msg-peer { background: #f3f4f6 !important; color: #111827 !important; padding: 10px; border-radius: 10px; margin-bottom: 8px; margin-right: 20%; border: 1px solid #e5e7eb; }
-
-    /* Hide Decorations */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# STATE & HELPERS
+# STATE & FLOW
 # =========================================================
 def ensure_state():
     if "session_step" not in st.session_state: st.session_state.session_step = "discovery"
@@ -126,14 +133,17 @@ def reset_matchmaking():
     st.rerun()
 
 # =========================================================
-# UI PAGES
+# MATCHMAKING COMPONENTS
 # =========================================================
 
 def show_discovery():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Peer Matchmaking")
     st.write("Find a compatible study partner using our AI matching system.")
-    if st.button("Search Compatible Partner"):
+    st.write("---")
+    
+    # This button will now be Emerald with a ripple effect
+    if st.button("Search Compatible Partner", type="primary"):
         peer = conn.execute("""
             SELECT p.user_id, a.name, p.bio, p.interests 
             FROM profiles p JOIN auth_users a ON a.id=p.user_id 
@@ -146,7 +156,7 @@ def show_discovery():
             st.session_state.session_step = "confirmation"
             st.rerun()
         else:
-            st.info("System: Currently scanning for available peers. You have been added to the queue.")
+            st.info("System Notification: Searching for active partners...")
             conn.execute("UPDATE profiles SET status='waiting' WHERE user_id=?", (st.session_state.user_id,))
             conn.commit()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -154,17 +164,17 @@ def show_discovery():
 def show_confirmation():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     p = st.session_state.peer_info
-    st.subheader(f"Matching Profile Found: {p['name']}")
-    st.write(f"Learning Focus: {p['ints']}")
-    st.write(f"Background: {p['bio']}")
+    st.subheader(f"System Match: {p['name']}")
+    st.write(f"**Focus:** {p['ints']}")
+    st.write(f"**Bio:** {p['bio']}")
     st.divider()
     
-    if st.button("Establish Live Session"):
+    if st.button("Accept and Connect"):
         st.balloons()
         time.sleep(1)
         st.session_state.session_step = "live"
         st.rerun()
-    if st.button("Reject and Re-scan"): reset_matchmaking()
+    if st.button("Decline Match"): reset_matchmaking()
     st.markdown("</div>", unsafe_allow_html=True)
 
 @st.fragment(run_every=2)
@@ -175,29 +185,34 @@ def live_chat_fragment():
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for sender, message, file_path in msgs:
         is_me = (sender == st.session_state.user_name)
-        cl = "msg-me" if is_me else "msg-peer"
+        color = "#10b981" if is_me else "#ffffff"
+        txt_color = "white" if is_me else "#1f2937"
+        align = "flex-end" if is_me else "flex-start"
         
-        if message:
-            st.markdown(f'<div class="{cl}"><b>{sender}</b><br>{message}</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div style="display: flex; flex-direction: column; align-items: {align}; margin-bottom: 10px;">
+                <div style="background: {color}; color: {txt_color}; padding: 10px 15px; border-radius: 12px; max-width: 80%; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <b>{sender}</b><br>{message if message else ""}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
         if file_path:
-            fname = os.path.basename(file_path)
-            st.markdown(f'<div class="{cl}">[Attached File: {fname}]</div>', unsafe_allow_html=True)
-            with open(file_path, "rb") as f:
-                st.download_button(f"Open {fname}", f, file_name=fname, key=f"f_{time.time()}")
+            st.download_button(f"Shared Document: {os.path.basename(file_path)}", open(file_path, "rb"), file_name=os.path.basename(file_path), key=f"f_{time.time()}")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_live_session():
-    st.subheader(f"Collaboration with {st.session_state.peer_info['name']}")
+    st.subheader(f"Active Session with {st.session_state.peer_info['name']}")
     live_chat_fragment()
 
     with st.container():
         c1, c2, c3 = st.columns([3, 1, 1])
         with c1:
-            txt = st.text_input("Note", placeholder="Type here...", label_visibility="collapsed", key="chat_in")
+            txt = st.text_input("Message", placeholder="Communicate here...", label_visibility="collapsed", key="chat_in")
         with c2:
-            file = st.file_uploader("Document", label_visibility="collapsed", key="f_up")
+            file = st.file_uploader("Upload", label_visibility="collapsed", key="f_up")
         with c3:
-            if st.button("Submit"):
+            if st.button("Send Message"):
                 path = None
                 if file:
                     path = os.path.join(UPLOAD_DIR, file.name)
@@ -208,32 +223,32 @@ def show_live_session():
                     conn.commit()
                     st.rerun()
     
-    if st.button("Terminate Session"):
+    if st.button("Close Room"):
         st.session_state.session_step = "summary"
         st.rerun()
 
 def show_summary():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title("Session Report")
-    st.write("System: Analyzing collaboration data...")
-    if st.button("Initiate Assessment Quiz"):
+    st.title("Learning Summary")
+    st.write("System generating session analysis...")
+    if st.button("Start Knowledge Check"):
         st.session_state.session_step = "quiz"
         st.rerun()
-    if st.button("Return to Dashboard"): reset_matchmaking()
+    if st.button("Back to Hub"): reset_matchmaking()
     st.markdown("</div>", unsafe_allow_html=True)
 
 def show_quiz():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title("Knowledge Assessment")
-    if st.button("Complete Final Step"): reset_matchmaking()
+    st.title("AI Assessment")
+    if st.button("Submit and Exit"): reset_matchmaking()
     st.markdown("</div>", unsafe_allow_html=True)
 
 def matchmaking_page():
     ensure_state()
     with st.sidebar:
-        st.title("AI Consultant")
-        q = st.text_area("Request AI Support")
-        if st.button("Process Command"):
+        st.title("AI Systems")
+        q = st.text_area("Request AI Consultation")
+        if st.button("Execute Process"):
             st.write(ask_ai(q))
 
     step = st.session_state.session_step
