@@ -150,13 +150,14 @@ def matchmaking_page():
     require_login()
     init_state()
 
-    # ================= UI STYLE (SCOPED – NAV BUTTONS SAFE) =================
+    # ================= UI STYLE (ONLY SESSION BUTTONS EMERALD) =================
     st.markdown("""
     <style>
-    .stApp .stButton > button {
+    /* MAIN CONTENT BUTTONS ONLY */
+    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button {
         position: relative;
         overflow: hidden;
-        background: linear-gradient(135deg,#6366f1,#4f46e5);
+        background: linear-gradient(135deg, #0f766e, #14b8a6, #22c55e);
         color: white;
         border: none;
         border-radius: 999px;
@@ -165,16 +166,16 @@ def matchmaking_page():
         font-size: 0.85rem;
         cursor: pointer;
         transition: transform .2s ease, box-shadow .2s ease;
-        box-shadow: 0 6px 18px rgba(79,70,229,.35);
+        box-shadow: 0 6px 18px rgba(20,184,166,.35);
     }
 
-    .stApp .stButton > button:hover {
+    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 28px rgba(79,70,229,.45);
-        background: linear-gradient(135deg,#4f46e5,#4338ca);
+        box-shadow: 0 10px 28px rgba(20,184,166,.45);
+        background: linear-gradient(135deg, #0d9488, #10b981);
     }
 
-    .stApp .stButton > button::after {
+    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button::after {
         content: "";
         position: absolute;
         top: 50%;
@@ -187,7 +188,7 @@ def matchmaking_page():
         opacity: 0;
     }
 
-    .stApp .stButton > button:active::after {
+    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button:active::after {
         animation: ripple .6s ease-out;
     }
 
@@ -203,7 +204,6 @@ def matchmaking_page():
     ai_chat_ui()
     st.divider()
 
-    # (rest of logic continues UNCHANGED…)
-    # 👉 Confirmation page, balloons, live chat,
-    # 👉 file upload, summary, quiz, rating, back to matchmaking
-    # 👉 all remain exactly the same
+    # 👉 ALL LOGIC BELOW IS UNCHANGED
+    # Confirmation page, balloons, live chat,
+    # file upload, summary, quiz, rating, back to matchmaking
