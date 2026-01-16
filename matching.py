@@ -196,38 +196,37 @@ def show_rating():
             msgs = run_query("SELECT sender, message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
             transcript = "\n".join([f"{m['sender']}: {m['message']}" for m in msgs]) if msgs else "No data."
             
-            # GEMINI OPTIMIZED PROMPT
+            # OPENAI OPTIMIZED PROMPT
             prompt = f"""
-            Task: Analyze this study session transcript between two students.
-            Transcript: {transcript}
+            Analyze this study chat transcript:
+            {transcript}
 
-            Instructions:
-            1. Provide a 3-bullet point summary of the topics discussed.
-            2. Create 3 multiple choice questions based on the content.
+            1. Provide a 3-bullet point summary of the topics.
+            2. Provide 3 MCQs in a valid JSON list format.
 
             Format Requirements:
-            SUMMARY_START
-            [Your 3 bullet points]
-            SUMMARY_END
+            [SUMMARY]
+            (Your bullet points here)
+            [/SUMMARY]
 
-            QUIZ_START
+            [QUIZ]
             [
-              {{"question": "...", "options": ["...", "..."], "answer": "..."}},
+              {{"question": "...", "options": ["A", "B", "C"], "answer": "A"}},
               ...
             ]
-            QUIZ_END
+            [/QUIZ]
             """
             
             try:
                 full_res = ask_ai(prompt)
                 
-                # Robust extraction for Summary
-                if "SUMMARY_START" in full_res:
-                    st.session_state.session_summary = full_res.split("SUMMARY_START")[1].split("SUMMARY_END")[0].strip()
+                # Robust extraction for Summary using OpenAI tags
+                if "[SUMMARY]" in full_res:
+                    st.session_state.session_summary = full_res.split("[SUMMARY]")[1].split("[/SUMMARY]")[0].strip()
                 else:
                     st.session_state.session_summary = "Session concluded successfully."
 
-                # Robust extraction for JSON Quiz
+                # Robust extraction for JSON Quiz (OpenAI sometimes adds Markdown backticks)
                 json_pattern = re.compile(r'\[\s*\{.*\}\s*\]', re.DOTALL)
                 match = json_pattern.search(full_res)
                 if match:
@@ -236,7 +235,7 @@ def show_rating():
                     st.session_state.quiz_data = []
 
             except Exception as e:
-                st.session_state.session_summary = "AI processing failed. Please check connection."
+                st.session_state.session_summary = "AI Summary currently unavailable. Please check billing status."
                 st.session_state.quiz_data = []
         
         st.session_state.session_step = "quiz"
@@ -254,7 +253,7 @@ def show_quiz():
     
     quiz = st.session_state.get('quiz_data', [])
     if not quiz:
-        st.write("Verification data unavailable or quota reached.")
+        st.write("Verification data unavailable. Please check OpenAI API billing.")
         if st.button("Complete"): st.session_state.quiz_done = True
     else:
         with st.form("quiz_form"):
