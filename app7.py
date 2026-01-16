@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from openai import OpenAI
+import google.generativeai as genai
 
 # =========================================================
 # PAGE CONFIG (MUST BE FIRST)
@@ -11,20 +11,26 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---- OPENAI CLIENT SETUP ----
-# Using a try-except block to prevent the app from crashing due to key issues
+# ---- FREE AI SETUP (GEMINI) ----
+# 1. Go to https://aistudio.google.com/
+# 2. Get your API Key
+# 3. For GitHub/Streamlit Cloud: Add GEMINI_API_KEY to "Secrets" in the Dashboard
 try:
-    # It's best to put your key in st.secrets, but for direct use:
-    API_KEY = "YOUR_NEW_OPENAI_KEY" 
-    client = OpenAI(api_key=API_KEY)
+    # Attempt to get key from Streamlit Secrets (Recommended for GitHub)
+    GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception:
-    client = None
+    # Fallback for local testing - paste key here if not using secrets
+    GEMINI_KEY = "PASTE_YOUR_GEMINI_KEY_HERE"
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ---- DIRECTORY SETUP ----
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# ---- IMPORT PAGES (Ensure these files exist in your folder) ----
+# ---- IMPORT PAGES ----
 from materials import materials_page
 from practice import practice_page
 from admin import admin_page
@@ -185,7 +191,7 @@ elif page == "AI Assistant":
         st.markdown("""
             <div class='card'>
                 <h1 style='color:#0f766e; margin-bottom:0;'>Sahay AI Assistant</h1>
-                <p style='color:#64748b;'>Your emerald-themed learning companion.</p>
+                <p style='color:#64748b;'>Free Study Partner powered by Gemini Flash.</p>
             </div>
         """, unsafe_allow_html=True)
     
@@ -195,41 +201,30 @@ elif page == "AI Assistant":
             st.session_state.messages = []
             st.rerun()
 
-    # Chat Display
+    # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Chat Input
-    if prompt := st.chat_input("How can I help you today?"):
+    # Chat Input (Gemini Free Tier)
+    if prompt := st.chat_input("Ask Sahay AI..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
             try:
-                response_placeholder = st.empty()
-                full_response = ""
+                # Direct generation for free tier
+                # Added persona instruction to the prompt
+                context_prompt = f"You are Sahay AI, an encouraging mentor for students. User asks: {prompt}"
+                response = model.generate_content(context_prompt)
                 
-                # Streaming from OpenAI
-                for response in client.chat.completions.create(
-                    model="gpt-3.5-turbo", 
-                    messages=[
-                        {"role": "system", "content": "You are Sahay AI, a helpful mentor for a peer-learning platform."},
-                        *[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-                    ],
-                    stream=True,
-                ):
-                    full_response += (response.choices[0].delta.content or "")
-                    response_placeholder.markdown(full_response + "▌")
-                
-                response_placeholder.markdown(full_response)
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                st.markdown(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
             except Exception as e:
-                st.error("AI service is currently unavailable. Please check your API key and billing status.")
+                st.error("Free AI quota reached. Please wait 60 seconds or check your API key.")
 
 elif page == "Donations":
-    # FIXED: Using triple quotes for multi-line markdown
     st.markdown("""
         <div class='card'>
             <h1 style='color:#0f766e;'>Support Education</h1>
