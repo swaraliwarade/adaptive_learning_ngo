@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import uuid
 from datetime import timedelta
 from database import cursor, conn
 from streak import init_streak, render_streak_ui
@@ -40,7 +41,6 @@ def send_rematch_request(to_user_id):
     conn.commit()
 
 def load_incoming_requests(user_id):
-    # Modified to include the 'seen' status for badge logic
     cursor.execute("""
         SELECT rr.id, au.name, au.id, rr.seen
         FROM rematch_requests rr
@@ -51,27 +51,30 @@ def load_incoming_requests(user_id):
     return cursor.fetchall()
 
 def accept_request(req_id, from_user_id):
+    # Create a unique shared session ID
+    new_match_id = f"rematch_{uuid.uuid4().hex[:8]}"
+    
+    # Mark request as accepted
+    cursor.execute("UPDATE rematch_requests SET status='accepted' WHERE id=?", (req_id,))
+    
+    # Put both users in 'matched' status with the same ID
     cursor.execute("""
-        UPDATE rematch_requests SET status='accepted' WHERE id=?
-    """, (req_id,))
-    conn.commit()
-    cursor.execute("""
-        UPDATE profiles SET status='waiting', match_id=NULL
+        UPDATE profiles 
+        SET status='matched', match_id=?, accepted=1 
         WHERE user_id IN (?, ?)
-    """, (st.session_state.user_id, from_user_id))
+    """, (new_match_id, st.session_state.user_id, from_user_id))
+    
     conn.commit()
+    return new_match_id
 
 def check_notifications():
-    """Triggers a toast for unread notifications and marks them as seen."""
     cursor.execute("""
         SELECT COUNT(*) FROM rematch_requests 
         WHERE to_user = ? AND status = 'pending' AND seen = 0
     """, (st.session_state.user_id,))
-    unread_count = cursor.fetchone()[0]
-    
-    if unread_count > 0:
-        st.toast(f"✨ You have {unread_count} new rematch request(s)!", icon="🔔")
-        # Mark as seen so toast only appears once per new request
+    unread = cursor.fetchone()[0]
+    if unread > 0:
+        st.toast(f"✨ You have {unread} new rematch request(s)!", icon="🔔")
         cursor.execute("UPDATE rematch_requests SET seen = 1 WHERE to_user = ?", (st.session_state.user_id,))
         conn.commit()
 
@@ -80,16 +83,27 @@ def check_notifications():
 # =====================================================
 def dashboard_page():
     init_streak()
-    
-    # Check for new rematch notifications
     check_notifications()
+
+    # -------------------------------------------------
+    # ACTIVE SESSION DETECTION (For Rematches)
+    # -------------------------------------------------
+    cursor.execute("SELECT status, match_id FROM profiles WHERE user_id=?", (st.session_state.user_id,))
+    current_status = cursor.fetchone()
+
+    if current_status and current_status[0] == 'matched':
+        st.warning("🚀 **You have an active study session ready!**")
+        if st.button("Join Your Partner Now", use_container_width=True):
+            st.session_state.page = "Matchmaking"
+            st.rerun()
+        st.divider()
 
     st.title(f"Welcome back, {st.session_state.user_name}")
     st.caption("Your learning journey at a glance")
     st.divider()
 
     # -------------------------------------------------
-    # PROFILE FETCH
+    # PROFILE FETCH & EDIT LOGIC
     # -------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
@@ -99,19 +113,14 @@ def dashboard_page():
 
     edit_mode = st.session_state.get("edit_profile", False)
 
-    # -------------------------------------------------
-    # PROFILE CREATE / EDIT
-    # -------------------------------------------------
     if not profile or edit_mode:
         st.subheader("Profile Setup" if not profile else " Edit Profile")
-
         db_role = profile[0] if profile else "Student"
         raw_grade = profile[1] if profile else "Grade 1"
         try:
             grade_index = int(str(raw_grade).split()[-1]) - 1
             grade_index = max(0, min(grade_index, 9))
-        except:
-            grade_index = 0
+        except: grade_index = 0
 
         time_val = profile[2] if profile else TIME_SLOTS[0]
         ts_index = TIME_SLOTS.index(time_val) if time_val in TIME_SLOTS else 0
@@ -127,69 +136,34 @@ def dashboard_page():
 
             strong, weak, teaches = [], [], []
             if role == "Student":
-                st.info("As a Student, tell us your strengths and areas for improvement.")
                 strong = st.multiselect("Strong Subjects", SUBJECTS, default=strong_list)
                 weak = st.multiselect("Weak Subjects", SUBJECTS, default=weak_list)
             else:
-                st.info("As a Teacher, select the subjects you are qualified to instruct.")
                 teaches = st.multiselect("Subjects You Teach", SUBJECTS, default=teach_list)
 
-            submitted = st.form_submit_button("Save Profile")
-
-            if submitted:
+            if st.form_submit_button("Save Profile"):
                 cursor.execute("""
                     INSERT OR REPLACE INTO profiles (
                         user_id, role, grade, time,
                         strong_subjects, weak_subjects, teaches, status
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
-                """, (
-                    st.session_state.user_id, role, grade, time_slot,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
+                """, (st.session_state.user_id, role, grade, time_slot,
                     ",".join(strong) if role == "Student" else "",
                     ",".join(weak) if role == "Student" else "",
-                    ",".join(teaches) if role == "Teacher" else ""
-                ))
+                    ",".join(teaches) if role == "Teacher" else ""))
                 conn.commit()
                 st.session_state.edit_profile = False
-                st.success("Profile saved successfully!")
                 st.rerun()
         return
 
     # -------------------------------------------------
-    # PROFILE OVERVIEW
+    # PROFILE DISPLAY
     # -------------------------------------------------
     role, grade, time_slot, strong, weak, teaches = profile
     st.subheader("Profile Overview")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Role", role)
-    c2.metric("Grade", grade)
-    c3.metric("Time Slot", time_slot)
+    c1.metric("Role", role); c2.metric("Grade", grade); c3.metric("Time Slot", time_slot)
 
-    st.write("")
-    col1, col2 = st.columns(2)
-
-    if role == "Student":
-        with col1:
-            st.markdown("### Strong Subjects")
-            s_list = strong.split(",") if strong else []
-            if s_list:
-                for s in s_list: st.success(s)
-            else: st.info("None added")
-        with col2:
-            st.markdown("### Weak Subjects")
-            w_list = weak.split(",") if weak else []
-            if w_list:
-                for w in w_list: st.warning(w)
-            else: st.info("None added")
-    else:
-        with col1:
-            st.markdown("### Subjects You Teach")
-            t_list = teaches.split(",") if teaches else []
-            if t_list:
-                for t in t_list: st.success(t)
-            else: st.info("None added")
-
-    st.write("")
     if st.button("✎ Edit Profile"):
         st.session_state.edit_profile = True
         st.rerun()
@@ -208,15 +182,14 @@ def dashboard_page():
     else:
         for match_id, rating, partner_id, partner_name in history:
             with st.expander(f"👤 {partner_name} • ⭐ {rating}/5"):
-                st.write(f"**Session ID:** {match_id}")
-                if st.button(f"↻ Request Re-match with {partner_name}", key=f"rematch_{match_id}"):
+                if st.button(f"↻ Request Re-match", key=f"rem_btn_{match_id}"):
                     send_rematch_request(partner_id)
-                    st.success("Re-match request sent!")
+                    st.success("Request sent!")
 
     st.divider()
 
     # -------------------------------------------------
-    # REMATCH REQUESTS (With In-App Badges)
+    # REMATCH REQUESTS
     # -------------------------------------------------
     st.subheader("Rematch Requests")
     requests = load_incoming_requests(st.session_state.user_id)
@@ -225,13 +198,10 @@ def dashboard_page():
     else:
         for req_id, sender_name, sender_id, seen_status in requests:
             col1, col2 = st.columns([3,1])
-            
-            # Show a red 'NEW' badge if seen_status is 0 (though we mark them seen on page load, 
-            # this logic allows for future granular control)
             badge = " <span style='background:#ff4b4b; color:white; padding:2px 6px; border-radius:4px; font-size:10px;'>NEW</span>" if seen_status == 0 else ""
             col1.markdown(f"👤 **{sender_name}** wants to study again{badge}", unsafe_allow_html=True)
             
-            if col2.button("Accept", key=f"accept_{req_id}"):
+            if col2.button("Accept & Join", key=f"acc_{req_id}"):
                 accept_request(req_id, sender_id)
-                st.success("Accepted! Go to Matchmaking.")
+                st.session_state.page = "Matchmaking"
                 st.rerun()
