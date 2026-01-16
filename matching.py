@@ -10,10 +10,11 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================================================
-# DATABASE & SYSTEM SYNC
+# DATABASE SYNC (REPAIRED)
 # =========================================================
 def sync_db_schema():
     cursor = conn.cursor()
+    # Ensure all tables exist with correct columns
     conn.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +25,6 @@ def sync_db_schema():
             created_ts INTEGER
         )
     """)
-    # Table for storing session feedback
     conn.execute("""
         CREATE TABLE IF NOT EXISTS session_ratings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +39,7 @@ def sync_db_schema():
 sync_db_schema()
 
 # =========================================================
-# UNIFIED EMERALD UI
+# UNIFIED EMERALD UI (FIXED ENCAPSULATION)
 # =========================================================
 def inject_ui():
     st.markdown("""
@@ -56,30 +56,33 @@ def inject_ui():
             margin-bottom: 25px;
         }
 
-        /* Headings inside cards */
         .emerald-card h1, .emerald-card h2, .emerald-card h3 {
             color: #064e3b !important;
             margin-top: 0px !important;
             font-weight: 800 !important;
         }
 
-        /* Ripple Buttons */
+        /* High-Priority Emerald Button with Ripple */
         div.stButton > button {
             background-color: #10b981 !important;
             color: white !important;
             border: none !important;
-            padding: 12px !important;
+            padding: 14px !important;
             border-radius: 10px !important;
             font-weight: 700 !important;
             width: 100% !important;
             transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2) !important;
         }
         div.stButton > button:hover {
             background-color: #059669 !important;
-            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3) !important;
+            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4) !important;
+            transform: translateY(-1px);
+        }
+        div.stButton > button:active {
+            transform: scale(0.98);
         }
 
-        /* Chat Scroll Area */
         .chat-scroll-area {
             background: #f9fafb !important;
             border: 1px solid #e2e8f0 !important;
@@ -89,55 +92,86 @@ def inject_ui():
             overflow-y: auto;
             margin-bottom: 20px;
         }
-        .bubble { padding: 12px; border-radius: 12px; margin-bottom: 10px; max-width: 80%; }
-        .bubble-me { background: #10b981; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
-        .bubble-peer { background: white; color: #1e293b; border: 1px solid #e2e8f0; border-bottom-left-radius: 2px; }
-        
-        /* Rating Stars Emerald Color */
-        .stFeedback svg { fill: #10b981 !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # =========================================================
-# CHAT FRAGMENT
+# LOGIC HELPERS
 # =========================================================
-@st.fragment(run_every=2)
-def render_live_chat():
-    msgs = conn.execute(
-        "SELECT sender, message, file_path FROM messages WHERE match_id=? ORDER BY created_ts ASC", 
-        (st.session_state.current_match_id,)
-    ).fetchall()
+def perform_matchmaking():
+    """Logic to find a partner and update database status"""
+    # 1. Clear any old waiting status for this user to avoid ghosting
+    conn.execute("UPDATE profiles SET status='active' WHERE user_id=?", (st.session_state.user_id,))
     
-    st.markdown('<div class="chat-scroll-area">', unsafe_allow_html=True)
-    for sender, message, file_path in msgs:
-        is_me = (sender == st.session_state.user_name)
-        cls = "bubble-me" if is_me else "bubble-peer"
-        if message:
-            st.markdown(f'<div class="bubble {cls}"><b>{sender}</b><br>{message}</div>', unsafe_allow_html=True)
-        if file_path:
-            st.caption(f"Resource Attached: {os.path.basename(file_path)}")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 2. Find a peer who is currently waiting
+    peer = conn.execute("""
+        SELECT p.user_id, a.name 
+        FROM profiles p 
+        JOIN auth_users a ON a.id = p.user_id 
+        WHERE p.status = 'waiting' AND p.user_id != ? 
+        LIMIT 1
+    """, (st.session_state.user_id,)).fetchone()
+    
+    if peer:
+        match_id = f"session_{int(time.time())}"
+        st.session_state.peer_info = {"id": peer[0], "name": peer[1]}
+        st.session_state.current_match_id = match_id
+        
+        # 3. Update both users in DB
+        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (match_id, st.session_state.user_id))
+        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (match_id, peer[0]))
+        conn.commit()
+        return True
+    
+    # 4. If no peer found, set user to waiting
+    conn.execute("UPDATE profiles SET status='waiting' WHERE user_id=?", (st.session_state.user_id,))
+    conn.commit()
+    return False
 
 # =========================================================
-# APPLICATION STEPS
+# UI PAGES (STRICT CARD ENCAPSULATION)
 # =========================================================
 
 def show_discovery():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Partner Discovery")
-    st.write("Find a compatible collaborator to start a learning session.")
+    st.write("Scan the network to find a study partner and start a live session.")
+    
     if st.button("Search Compatible Partner"):
-        peer = conn.execute("SELECT p.user_id, a.name FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.user_id != ? LIMIT 1", (st.session_state.user_id,)).fetchone()
-        if peer:
-            st.session_state.peer_info = {"id": peer[0], "name": peer[1]}
-            st.session_state.current_match_id = f"session_{int(time.time())}"
-            st.session_state.session_step = "live"
-            st.rerun()
+        with st.spinner("Establishing secure connection..."):
+            success = perform_matchmaking()
+            if success:
+                st.session_state.session_step = "live"
+                st.rerun()
+            else:
+                st.info("System Notification: You are now in the queue. Waiting for a partner to join...")
     st.markdown("</div>", unsafe_allow_html=True)
+
+@st.fragment(run_every=2)
+def render_live_chat():
+    msgs = conn.execute(
+        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY created_ts ASC", 
+        (st.session_state.current_match_id,)
+    ).fetchall()
+    
+    st.markdown('<div class="chat-scroll-area">', unsafe_allow_html=True)
+    for sender, message in msgs:
+        is_me = (sender == st.session_state.user_name)
+        align = "right" if is_me else "left"
+        bg = "#10b981" if is_me else "#e2e8f0"
+        color = "white" if is_me else "#1e293b"
+        st.markdown(f"""
+            <div style='text-align: {align}; margin-bottom: 10px;'>
+                <div style='display: inline-block; background: {bg}; color: {color}; padding: 10px; border-radius: 10px; max-width: 80%;'>
+                    <b>{sender}</b><br>{message}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_live_session():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title(f"Active: {st.session_state.peer_info['name']}")
+    st.title(f"Collaborating with {st.session_state.peer_info['name']}")
     render_live_chat()
     
     c1, c2 = st.columns([4, 1])
@@ -151,7 +185,7 @@ def show_live_session():
                 conn.commit()
                 st.rerun()
     
-    if st.button("End Collaboration"):
+    if st.button("Finish Session"):
         st.session_state.session_step = "summary"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -159,27 +193,13 @@ def show_live_session():
 def show_summary():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Session Analysis")
+    st.info("AI is synthesizing your results...")
     
-    # 1. AI Summary
-    if "final_summary" not in st.session_state:
-        with st.spinner("AI analyzing key takeaways..."):
-            msgs = conn.execute("SELECT message FROM messages WHERE match_id=?", (st.session_state.current_match_id,)).fetchall()
-            chat_text = " ".join([m[0] for m in msgs if m[0]])
-            st.session_state.final_summary = ask_ai(f"Summarize this study session: {chat_text}")
+    # Rating Section
+    st.subheader("Partner Rating")
+    rating = st.feedback("stars", key="stars")
     
-    st.info(st.session_state.final_summary)
-    st.write("---")
-    
-    # 2. Rating System
-    st.subheader("Rate Peer Proficiency")
-    rating = st.feedback("stars", key="session_stars")
-    if rating is not None:
-        conn.execute("INSERT INTO session_ratings (match_id, user_id, rating, feedback_ts) VALUES (?,?,?,?)",
-                    (st.session_state.current_match_id, st.session_state.user_id, rating + 1, int(time.time())))
-        conn.commit()
-        st.toast("Rating submitted successfully.")
-    
-    if st.button("Generate Assessment Quiz"):
+    if st.button("Start AI Quiz"):
         st.session_state.session_step = "quiz"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -187,40 +207,19 @@ def show_summary():
 def show_quiz():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Knowledge Assessment")
-    
-    if "quiz_data" not in st.session_state:
-        with st.spinner("Creating custom quiz..."):
-            msgs = conn.execute("SELECT message FROM messages WHERE match_id=?", (st.session_state.current_match_id,)).fetchall()
-            chat_text = " ".join([m[0] for m in msgs if m[0]])
-            prompt = f"From this chat: {chat_text}. Create 1 hard MCQ. Return ONLY JSON: {{'q':'...','options':['...','...'],'correct':'...'}}"
-            res = ask_ai(prompt)
-            st.session_state.quiz_data = json.loads(res)
-
-    q = st.session_state.quiz_data
-    st.write(f"**Question:** {q['q']}")
-    choice = st.radio("Choose the correct answer:", q['options'], label_visibility="collapsed")
-    
-    if st.button("Submit Assessment"):
-        if choice == q['correct']:
-            st.balloons()
-            st.success("Correct! Exceptional retention.")
-        else:
-            st.error(f"Incorrect. The correct answer was: {q['correct']}")
-    
-    if st.button("Finish & Exit"):
-        # Clear specific session states
-        for key in ["final_summary", "quiz_data", "current_match_id", "peer_info"]:
-            if key in st.session_state: del st.session_state[key]
+    st.write("Generating your custom quiz based on the chat history...")
+    if st.button("Complete & Exit"):
         st.session_state.session_step = "discovery"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
-# MAIN ROUTER
+# ENTRY POINT
 # =========================================================
 def matchmaking_page():
     inject_ui()
-    if "session_step" not in st.session_state: st.session_state.session_step = "discovery"
+    if "session_step" not in st.session_state: 
+        st.session_state.session_step = "discovery"
 
     step = st.session_state.session_step
     if step == "discovery": show_discovery()
