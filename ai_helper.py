@@ -1,19 +1,20 @@
 import streamlit as st
-from openai import OpenAI
+from groq import Groq
 
-# Setup OpenAI Client
+# Setup Groq Client
 try:
-    # Looks for OPENAI_API_KEY in your Streamlit Secrets
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    # Looks for GROQ_API_KEY in your Streamlit Secrets
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except Exception as e:
+    # Fallback for local
     client = None
 
 def ask_ai(prompt):
     if client:
         try:
-            # Using gpt-3.5-turbo for speed and cost-efficiency
+            # Using Llama-3.3-70b or Llama3-8b for high speed and accuracy
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="llama-3.3-70b-versatile",
                 messages=[
                     {"role": "system", "content": "You are Sahay AI, a helpful mentor for a peer-learning platform."},
                     {"role": "user", "content": prompt}
@@ -22,7 +23,6 @@ def ask_ai(prompt):
             )
             return response.choices[0].message.content
         except Exception as e:
-            # Common errors: Insufficient balance (402) or Invalid Key (401)
             return f"AI Error: {str(e)}"
     
-    return "AI is not configured. Please add OPENAI_API_KEY to secrets."
+    return "AI is not configured. Please add GROQ_API_KEY to secrets."
