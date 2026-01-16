@@ -4,6 +4,9 @@ from datetime import timedelta
 from database import cursor, conn
 from streak import init_streak, render_streak_ui
 
+# Note: Ensure 'client' is imported or available from your main app script
+# If this is a separate file, you may need: from ai_helper import client
+
 SUBJECTS = ["Mathematics", "English", "Science"]
 TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
 
@@ -86,10 +89,7 @@ def dashboard_page():
     if not profile or edit_mode:
         st.subheader("Profile Setup" if not profile else " Edit Profile")
 
-        # Prefill logic with safety checks
         db_role = profile[0] if profile else "Student"
-        
-        # SAFE GRADE CALCULATION
         raw_grade = profile[1] if profile else "Grade 1"
         try:
             grade_index = int(str(raw_grade).split()[-1]) - 1
@@ -105,15 +105,11 @@ def dashboard_page():
         teach_list = profile[5].split(",") if profile and profile[5] else []
 
         with st.form("profile_form"):
-            # Role selector (Using a standard selectbox for cleaner logic inside form)
             role = st.selectbox("I am a:", ["Student", "Teacher"], index=0 if db_role=="Student" else 1)
-            
             grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)], index=grade_index)
             time_slot = st.selectbox("Available Time Slot", TIME_SLOTS, index=ts_index)
 
-            # Conditional inputs based on role
             strong, weak, teaches = [], [], []
-            
             if role == "Student":
                 st.info("As a Student, tell us your strengths and areas for improvement.")
                 strong = st.multiselect("Strong Subjects", SUBJECTS, default=strong_list)
@@ -132,10 +128,7 @@ def dashboard_page():
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
                 """, (
-                    st.session_state.user_id,
-                    role,
-                    grade,
-                    time_slot,
+                    st.session_state.user_id, role, grade, time_slot,
                     ",".join(strong) if role == "Student" else "",
                     ",".join(weak) if role == "Student" else "",
                     ",".join(teaches) if role == "Teacher" else ""
@@ -150,7 +143,6 @@ def dashboard_page():
     # PROFILE OVERVIEW
     # -------------------------------------------------
     role, grade, time_slot, strong, weak, teaches = profile
-    
     st.subheader("Profile Overview")
     c1, c2, c3 = st.columns(3)
     c1.metric("Role", role)
