@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import google.generativeai as genai
+from openai import OpenAI # Changed from google.generativeai
 
 # =========================================================
 # PAGE CONFIG (MUST BE FIRST)
@@ -11,20 +11,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---- FREE AI SETUP (GEMINI) ----
-# 1. Go to https://aistudio.google.com/
-# 2. Get your API Key
-# 3. For GitHub/Streamlit Cloud: Add GEMINI_API_KEY to "Secrets" in the Dashboard
+# ---- OPENAI SETUP ----
 try:
-    # Attempt to get key from Streamlit Secrets (Recommended for GitHub)
-    GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Attempt to get key from Streamlit Secrets
+    OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
+    client = OpenAI(api_key=OPENAI_KEY)
 except Exception:
-    # Fallback for local testing - paste key here if not using secrets
-    GEMINI_KEY = "PASTE_YOUR_GEMINI_KEY_HERE"
-    genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Fallback for local testing
+    OPENAI_KEY = "PASTE_YOUR_OPENAI_KEY_HERE"
+    client = OpenAI(api_key=OPENAI_KEY)
 
 # ---- DIRECTORY SETUP ----
 if not os.path.exists("uploads"):
@@ -191,7 +186,7 @@ elif page == "AI Assistant":
         st.markdown("""
             <div class='card'>
                 <h1 style='color:#0f766e; margin-bottom:0;'>Sahay AI Assistant</h1>
-                <p style='color:#64748b;'>Free Study Partner powered by Gemini Flash.</p>
+                <p style='color:#64748b;'>Study Partner powered by OpenAI GPT.</p>
             </div>
         """, unsafe_allow_html=True)
     
@@ -206,7 +201,7 @@ elif page == "AI Assistant":
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Chat Input (Gemini Free Tier)
+    # Chat Input (OpenAI)
     if prompt := st.chat_input("Ask Sahay AI..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -214,17 +209,23 @@ elif page == "AI Assistant":
 
         with st.chat_message("assistant"):
             try:
-                # Direct generation for free tier
-                # Added persona instruction to the prompt
-                context_prompt = f"You are Sahay AI, an encouraging mentor for students. User asks: {prompt}"
-                response = model.generate_content(context_prompt)
+                # OpenAI Chat Completion
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are Sahay AI, an encouraging mentor for students."},
+                        *[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+                    ]
+                )
                 
-                st.markdown(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                res_text = response.choices[0].message.content
+                st.markdown(res_text)
+                st.session_state.messages.append({"role": "assistant", "content": res_text})
             except Exception as e:
-                st.error("Free AI quota reached. Please wait 60 seconds or check your API key.")
+                st.error("AI service currently unavailable. Please check your OpenAI API key and balance.")
 
 elif page == "Donations":
+    # ... (Rest of your donation code stays exactly the same)
     st.markdown("""
         <div class='card'>
             <h1 style='color:#0f766e;'>Support Education</h1>
