@@ -32,12 +32,19 @@ def init_state():
         "quiz": None,
         "rating_given": False,
         "ai_chat": [],
-        "refresh_key": 0,
         "proposed_match": None,
         "proposed_score": None,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
+
+def ensure_waiting():
+    conn.execute("""
+        UPDATE profiles
+        SET status='waiting', match_id=NULL
+        WHERE user_id=?
+    """, (st.session_state.user_id,))
+    conn.commit()
 
 def should_poll():
     return now() - st.session_state.last_poll >= POLL_INTERVAL
@@ -47,16 +54,10 @@ def poll():
     st.rerun()
 
 def reset_matchmaking():
-    conn.execute(
-        "UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?",
-        (st.session_state.user_id,)
-    )
-    conn.commit()
-
+    ensure_waiting()
     for k in list(st.session_state.keys()):
         if k not in ["user_id", "user_name", "logged_in", "page"]:
             del st.session_state[k]
-
     st.rerun()
 
 # =========================================================
@@ -76,42 +77,37 @@ def ai_chat_ui():
 # MATCHING
 # =========================================================
 def load_waiting_profiles():
-    rows = conn.execute("""
+    return conn.execute("""
         SELECT a.id, a.name, p.grade, p.time,
                p.strong_subjects, p.weak_subjects
         FROM profiles p
         JOIN auth_users a ON a.id=p.user_id
-        WHERE p.user_id!=?
+        WHERE p.user_id != ?
           AND p.status='waiting'
           AND p.match_id IS NULL
     """, (st.session_state.user_id,)).fetchall()
 
-    users = []
-    for r in rows:
-        users.append({
+def compatibility(a, b):
+    score = 0
+    score += len(set(a["weak"]) & set(b["strong"])) * 25
+    score += len(set(b["weak"]) & set(a["strong"])) * 25
+    if a["grade"] == b["grade"]:
+        score += 10
+    if a["time"] == b["time"]:
+        score += 10
+    return score
+
+def find_best_match(current):
+    best, best_score = None, -1
+    for r in load_waiting_profiles():
+        u = {
             "user_id": r[0],
             "name": r[1],
             "grade": r[2],
             "time": r[3],
             "strong": (r[4] or "").split(","),
             "weak": (r[5] or "").split(","),
-        })
-    return users
-
-def compatibility(a, b):
-    s = 0
-    s += len(set(a["weak"]) & set(b["strong"])) * 25
-    s += len(set(b["weak"]) & set(a["strong"])) * 25
-    if a["grade"] == b["grade"]:
-        s += 10
-    if a["time"] == b["time"]:
-        s += 10
-    s += random.randint(0, 5)
-    return s
-
-def find_best_match(current):
-    best, best_score = None, -1
-    for u in load_waiting_profiles():
+        }
         sc = compatibility(current, u)
         if sc > best_score:
             best, best_score = u, sc
@@ -149,45 +145,14 @@ def star_rating():
 def matchmaking_page():
     require_login()
     init_state()
-
-    # ================= EMERALD BUTTON STYLE (SESSION ONLY) =================
-    st.markdown("""
-    <style>
-    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button {
-        background: linear-gradient(135deg,#0f766e,#14b8a6,#22c55e);
-        color:white;
-        border:none;
-        border-radius:999px;
-        padding:0.55rem 1.1rem;
-        font-weight:600;
-        box-shadow:0 6px 18px rgba(20,184,166,.35);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    ensure_waiting()
 
     st.markdown("## Study Matchmaking")
     ai_chat_ui()
     st.divider()
 
-    # ================= FIND PARTNER (VISIBLE ENTRY POINT) =================
+    # ================= FIND PARTNER =================
     if not st.session_state.confirmed and not st.session_state.proposed_match:
-        st.markdown(
-            """
-            <div style="
-                background:#ffffff;
-                border-radius:16px;
-                padding:1.2rem;
-                box-shadow:0 10px 24px rgba(0,0,0,.06);
-            ">
-            <h4>Find a study partner</h4>
-            <p>
-            We’ll match you with someone based on subjects, grade, and time slot.
-            </p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
         r = conn.execute("""
             SELECT grade, time, strong_subjects, weak_subjects
             FROM profiles WHERE user_id=?
@@ -207,8 +172,103 @@ def matchmaking_page():
                 st.session_state.proposed_score = score
                 st.rerun()
             else:
-                st.info("No compatible users right now. Try again shortly.")
+                st.info("No users available right now.")
         return
 
-    # 👉 EVERYTHING BELOW (confirmation, balloons, live chat, files,
-    # 👉 summary, quiz, rating, back to matchmaking) REMAINS UNCHANGED
+    # ================= CONFIRM MATCH =================
+    if st.session_state.proposed_match and not st.session_state.confirmed:
+        u = st.session_state.proposed_match
+        st.write(f"Matched with **{u['name']}** (score {st.session_state.proposed_score})")
+
+        if st.button("Confirm match"):
+            match_id = f"{st.session_state.user_id}_{u['user_id']}_{now()}"
+
+            conn.execute("""
+                UPDATE profiles
+                SET status='matched', match_id=?
+                WHERE user_id IN (?,?)
+            """, (match_id, st.session_state.user_id, u["user_id"]))
+
+            conn.execute("""
+                INSERT INTO sessions(match_id, user1_id, user2_id, started_at)
+                VALUES (?,?,?,?)
+            """, (match_id, st.session_state.user_id, u["user_id"], now()))
+
+            conn.commit()
+
+            st.session_state.current_match_id = match_id
+            st.session_state.confirmed = True
+            st.balloons()
+            st.rerun()
+        return
+
+    # ================= LIVE SESSION =================
+    if should_poll():
+        fetch_messages(st.session_state.current_match_id)
+        poll()
+
+    st.subheader("Live chat")
+    for s, m in st.session_state.chat_log[-50:]:
+        st.write(f"{s}: {m}")
+
+    msg = st.text_input("Message")
+    if st.button("Send") and msg:
+        conn.execute("""
+            INSERT INTO messages(match_id, sender, message, created_ts)
+            VALUES (?,?,?,?)
+        """, (st.session_state.current_match_id, st.session_state.user_name, msg, now()))
+        conn.commit()
+        st.rerun()
+
+    # ================= FILE UPLOAD =================
+    f = st.file_uploader("Upload file")
+    if f:
+        path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
+        with open(path, "wb") as out:
+            out.write(f.read())
+        st.success("File uploaded")
+
+    # ================= END SESSION =================
+    if st.button("End session"):
+        conn.execute("""
+            UPDATE sessions SET ended_at=? WHERE match_id=?
+        """, (now(), st.session_state.current_match_id))
+        conn.commit()
+
+        chat_text = "\n".join([m for _, m in st.session_state.chat_log])
+        st.session_state.summary = ask_ai(
+            "Summarize this study session in 5 bullet points:\n" + chat_text
+        )
+        st.session_state.quiz = ask_ai(
+            "Create 3 MCQ questions based on this study session:\n" + chat_text
+        )
+
+        st.session_state.session_ended = True
+        st.rerun()
+
+    # ================= POST SESSION =================
+    if st.session_state.session_ended:
+        st.subheader("Session summary")
+        st.write(st.session_state.summary)
+
+        if not st.session_state.rating_given:
+            rating = star_rating()
+            if rating:
+                conn.execute("""
+                    INSERT INTO session_ratings(match_id, rater_id, rater_name, rating)
+                    VALUES (?,?,?,?)
+                """, (
+                    st.session_state.current_match_id,
+                    st.session_state.user_id,
+                    st.session_state.user_name,
+                    rating
+                ))
+                conn.commit()
+                st.session_state.rating_given = True
+                st.success("Rating saved")
+
+        st.subheader("Session quiz")
+        st.text(st.session_state.quiz)
+
+        if st.button("Back to matchmaking"):
+            reset_matchmaking()
