@@ -5,7 +5,6 @@ from database import cursor, conn
 from ai_helper import ask_ai
 
 SESSION_TIMEOUT_SEC = 60 * 60
-POLL_INTERVAL_SEC = 3
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -26,7 +25,6 @@ def init_state():
         "confirmed": False,
         "chat_log": [],
         "last_msg_ts": 0,
-        "last_poll": 0,
         "ai_chat": [],
         "summary": None,
         "quiz": None,
@@ -47,6 +45,35 @@ def require_login():
     if not st.session_state.user_id:
         st.warning("Please log in to use matchmaking.")
         st.stop()
+
+def reset_matchmaking():
+    """
+    Safely return user back to matchmaking
+    WITHOUT changing any DB features
+    """
+    cursor.execute("""
+        UPDATE profiles
+        SET status='waiting', match_id=NULL
+        WHERE user_id=?
+    """, (st.session_state.user_id,))
+    conn.commit()
+
+    # Reset UI state
+    for k in [
+        "current_match_id",
+        "session_start_time",
+        "session_ended",
+        "confirmed",
+        "chat_log",
+        "last_msg_ts",
+        "summary",
+        "quiz",
+        "show_quiz"
+    ]:
+        st.session_state[k] = None if k in ["current_match_id", "summary", "quiz"] else False
+
+    st.session_state.chat_log = []
+    st.rerun()
 
 # =========================================================
 # MATCHING
@@ -248,6 +275,9 @@ def matchmaking_page():
         st.session_state.summary = generate_summary(st.session_state.chat_log)
         st.rerun()
 
+    # -----------------------------------------------------
+    # POST SESSION
+    # -----------------------------------------------------
     if st.session_state.session_ended:
         st.subheader("📝 Session Summary")
         st.write(st.session_state.summary)
@@ -266,9 +296,16 @@ def matchmaking_page():
             conn.commit()
             st.success("Rating saved")
 
-        if st.button("Take Quiz"):
-            st.session_state.quiz = generate_quiz(st.session_state.chat_log)
-            st.session_state.show_quiz = True
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Take Quiz"):
+                st.session_state.quiz = generate_quiz(st.session_state.chat_log)
+                st.session_state.show_quiz = True
+
+        with col2:
+            if st.button("Back to Matchmaking"):
+                reset_matchmaking()
 
         if st.session_state.show_quiz:
             st.subheader("🧠 Quiz")
