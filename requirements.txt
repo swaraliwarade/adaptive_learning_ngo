@@ -5,6 +5,6 @@ streamlit
 openai
 pandas
 streamlit-lottie
-google-generativeai
+
 
 
