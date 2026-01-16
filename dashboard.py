@@ -22,14 +22,9 @@ def calculate_streak(dates):
             break
     return streak
 
-
 def load_match_history(user_id):
     cursor.execute("""
-        SELECT 
-            sr.match_id,
-            sr.rating,
-            au.id,
-            au.name
+        SELECT sr.match_id, sr.rating, au.id, au.name
         FROM session_ratings sr
         JOIN auth_users au ON au.id != sr.rater_id
         WHERE sr.rater_id = ?
@@ -37,14 +32,12 @@ def load_match_history(user_id):
     """, (user_id,))
     return cursor.fetchall()
 
-
 def send_rematch_request(to_user_id):
     cursor.execute("""
         INSERT INTO rematch_requests (from_user, to_user)
         VALUES (?, ?)
     """, (st.session_state.user_id, to_user_id))
     conn.commit()
-
 
 def load_incoming_requests(user_id):
     cursor.execute("""
@@ -55,26 +48,21 @@ def load_incoming_requests(user_id):
     """, (user_id,))
     return cursor.fetchall()
 
-
 def accept_request(req_id, from_user_id):
     cursor.execute("""
         UPDATE rematch_requests SET status='accepted' WHERE id=?
     """, (req_id,))
     conn.commit()
-
     cursor.execute("""
-        UPDATE profiles
-        SET status='waiting', match_id=NULL
+        UPDATE profiles SET status='waiting', match_id=NULL
         WHERE user_id IN (?, ?)
     """, (st.session_state.user_id, from_user_id))
     conn.commit()
-
 
 # =====================================================
 # DASHBOARD
 # =====================================================
 def dashboard_page():
-
     init_streak()
 
     st.title(f"Welcome back, {st.session_state.user_name}")
@@ -96,43 +84,42 @@ def dashboard_page():
     # PROFILE CREATE / EDIT
     # -------------------------------------------------
     if not profile or edit_mode:
-
         st.subheader("Profile Setup" if not profile else " Edit Profile")
 
         # Prefill logic with safety checks
-        default_role = profile[0] if profile else "Student"
+        db_role = profile[0] if profile else "Student"
         
         # SAFE GRADE CALCULATION
         raw_grade = profile[1] if profile else "Grade 1"
         try:
-            # Extract number safely: "Grade 5" -> 5 -> index 4
             grade_index = int(str(raw_grade).split()[-1]) - 1
-            grade_index = max(0, min(grade_index, 9)) # Clamp between 0-9
-        except (ValueError, IndexError, AttributeError):
+            grade_index = max(0, min(grade_index, 9))
+        except:
             grade_index = 0
 
-        time_slot = profile[2] if profile else TIME_SLOTS[0]
-        try:
-            ts_index = TIME_SLOTS.index(time_slot)
-        except ValueError:
-            ts_index = 0
+        time_val = profile[2] if profile else TIME_SLOTS[0]
+        ts_index = TIME_SLOTS.index(time_val) if time_val in TIME_SLOTS else 0
 
         strong_list = profile[3].split(",") if profile and profile[3] else []
         weak_list = profile[4].split(",") if profile and profile[4] else []
         teach_list = profile[5].split(",") if profile and profile[5] else []
 
-        # Form usage with mandatory Submit Button
         with st.form("profile_form"):
-            role = st.radio("Role", ["Student", "Teacher"], horizontal=True, index=0 if default_role=="Student" else 1)
+            # Role selector (Using a standard selectbox for cleaner logic inside form)
+            role = st.selectbox("I am a:", ["Student", "Teacher"], index=0 if db_role=="Student" else 1)
+            
             grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)], index=grade_index)
             time_slot = st.selectbox("Available Time Slot", TIME_SLOTS, index=ts_index)
 
+            # Conditional inputs based on role
             strong, weak, teaches = [], [], []
-
+            
             if role == "Student":
+                st.info("As a Student, tell us your strengths and areas for improvement.")
                 strong = st.multiselect("Strong Subjects", SUBJECTS, default=strong_list)
                 weak = st.multiselect("Weak Subjects", SUBJECTS, default=weak_list)
             else:
+                st.info("As a Teacher, select the subjects you are qualified to instruct.")
                 teaches = st.multiselect("Subjects You Teach", SUBJECTS, default=teach_list)
 
             submitted = st.form_submit_button("Save Profile")
@@ -149,53 +136,50 @@ def dashboard_page():
                     role,
                     grade,
                     time_slot,
-                    ",".join(strong),
-                    ",".join(weak),
-                    ",".join(teaches)
+                    ",".join(strong) if role == "Student" else "",
+                    ",".join(weak) if role == "Student" else "",
+                    ",".join(teaches) if role == "Teacher" else ""
                 ))
                 conn.commit()
-
                 st.session_state.edit_profile = False
                 st.success("Profile saved successfully!")
                 st.rerun()
-
         return
 
     # -------------------------------------------------
     # PROFILE OVERVIEW
     # -------------------------------------------------
     role, grade, time_slot, strong, weak, teaches = profile
-    strong_list = strong.split(",") if strong else []
-    weak_list = weak.split(",") if weak else []
-    teach_list = teaches.split(",") if teaches else []
-
+    
     st.subheader("Profile Overview")
-
     c1, c2, c3 = st.columns(3)
     c1.metric("Role", role)
     c2.metric("Grade", grade)
     c3.metric("Time Slot", time_slot)
 
     st.write("")
-
     col1, col2 = st.columns(2)
 
-    with col1:
-        st.markdown("### Strong Subjects")
-        display_strong = teach_list if role == "Teacher" else strong_list
-        if display_strong:
-            for s in display_strong:
-                st.success(s)
-        else:
-            st.info("Not added")
-
-    with col2:
-        st.markdown("### Weak Subjects")
-        if weak_list:
-            for w in weak_list:
-                st.warning(w)
-        else:
-            st.info("Not added")
+    if role == "Student":
+        with col1:
+            st.markdown("### Strong Subjects")
+            s_list = strong.split(",") if strong else []
+            if s_list:
+                for s in s_list: st.success(s)
+            else: st.info("None added")
+        with col2:
+            st.markdown("### Weak Subjects")
+            w_list = weak.split(",") if weak else []
+            if w_list:
+                for w in w_list: st.warning(w)
+            else: st.info("None added")
+    else:
+        with col1:
+            st.markdown("### Subjects You Teach")
+            t_list = teaches.split(",") if teaches else []
+            if t_list:
+                for t in t_list: st.success(t)
+            else: st.info("None added")
 
     st.write("")
     if st.button("✎ Edit Profile"):
@@ -203,10 +187,6 @@ def dashboard_page():
         st.rerun()
 
     st.divider()
-
-    # -------------------------------------------------
-    # STREAK
-    # -------------------------------------------------
     render_streak_ui()
     st.divider()
 
@@ -214,21 +194,14 @@ def dashboard_page():
     # MATCH HISTORY
     # -------------------------------------------------
     st.subheader("Match History")
-
     history = load_match_history(st.session_state.user_id)
-
     if not history:
         st.info("No completed sessions yet.")
     else:
         for match_id, rating, partner_id, partner_name in history:
             with st.expander(f"👤 {partner_name} • ⭐ {rating}/5"):
                 st.write(f"**Session ID:** {match_id}")
-                st.write(f"**Rating Given:** {rating}/5")
-
-                if st.button(
-                    f"↻ Request Re-match with {partner_name}",
-                    key=f"rematch_{match_id}"
-                ):
+                if st.button(f"↻ Request Re-match with {partner_name}", key=f"rematch_{match_id}"):
                     send_rematch_request(partner_id)
                     st.success("Re-match request sent!")
 
@@ -238,9 +211,7 @@ def dashboard_page():
     # REMATCH REQUESTS
     # -------------------------------------------------
     st.subheader("Rematch Requests")
-
     requests = load_incoming_requests(st.session_state.user_id)
-
     if not requests:
         st.info("No new requests.")
     else:
@@ -249,5 +220,5 @@ def dashboard_page():
             col1.write(f"👤 {sender_name} wants to study again")
             if col2.button("Accept", key=f"accept_{req_id}"):
                 accept_request(req_id, sender_id)
-                st.success("Request accepted! Go to Matchmaking.")
+                st.success("Accepted! Go to Matchmaking.")
                 st.rerun()
