@@ -3,8 +3,8 @@ import time
 from database import cursor, conn
 from ai_helper import ask_ai
 
-SESSION_TIMEOUT_SEC = 60 * 60   # 1 hour
-POLL_INTERVAL_SEC = 3           # real-time polling
+SESSION_TIMEOUT_SEC = 60 * 60
+POLL_INTERVAL_SEC = 3
 
 # =========================================================
 # HELPERS
@@ -19,17 +19,16 @@ def init_state():
         "current_match_id": None,
         "session_start_time": None,
         "session_ended": False,
-        "just_matched": False,
-        "partner_joined": False,
         "chat_log": [],
-        "last_msg_ts": 0,          # ✅ REQUIRED FOR LIVE CHAT
-        "proposed_match": None,
-        "proposed_score": None,
-        "show_quiz": False,
-        "quiz_raw": "",
-        "quiz_answers": {},
+        "last_msg_ts": 0,
+        "last_poll": 0,
+        "proposal": None,
+        "confirmed": False,
         "ai_chat": [],
-        "last_poll": 0
+        "summary": None,
+        "show_quiz": False,
+        "quiz": None,
+        "quiz_answers": {},
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -42,82 +41,19 @@ def update_last_seen():
         )
         conn.commit()
 
-def normalize_match(m):
-    if not m:
-        return None
-    if isinstance(m, dict):
-        return m
-    if isinstance(m, (tuple, list)) and len(m) >= 5:
-        return {
-            "user_id": m[0],
-            "name": m[1],
-            "role": m[2],
-            "grade": m[3],
-            "time": m[4],
-            "strong": (m[7] if len(m) > 7 else "").split(","),
-            "weak": (m[6] if len(m) > 6 else "").split(","),
-        }
-    return None
-
 # =========================================================
-# REAL-TIME CHECKS (NO AUTOREFRESH)
-# =========================================================
-def should_poll():
-    return now() - st.session_state.last_poll >= POLL_INTERVAL_SEC
-
-def poll_tick():
-    st.session_state.last_poll = now()
-    st.rerun()
-
-def check_if_matched():
-    cursor.execute("""
-        SELECT match_id FROM profiles
-        WHERE user_id=? AND status='matched'
-    """, (st.session_state.user_id,))
-    row = cursor.fetchone()
-    if row and not st.session_state.current_match_id:
-        st.session_state.current_match_id = row[0]
-        st.session_state.just_matched = True
-        st.session_state.session_start_time = now()
-        st.rerun()
-
-def check_partner_joined(match_id):
-    cursor.execute("""
-        SELECT last_seen FROM profiles
-        WHERE match_id=? AND user_id!=?
-    """, (match_id, st.session_state.user_id))
-    row = cursor.fetchone()
-    return bool(row and (now() - (row[0] or 0)) <= 10)
-
-# =========================================================
-# LIVE CHAT (DB BACKED)
-# =========================================================
-def fetch_new_messages(match_id):
-    cursor.execute("""
-        SELECT sender, message, created_ts
-        FROM messages
-        WHERE match_id=?
-          AND created_ts > ?
-        ORDER BY created_ts ASC
-    """, (match_id, st.session_state.last_msg_ts))
-    rows = cursor.fetchall()
-
-    for sender, msg, ts in rows:
-        st.session_state.chat_log.append((sender, msg))
-        st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
-
-# =========================================================
-# MATCHING LOGIC
+# MATCHING
 # =========================================================
 def load_waiting_profiles():
     cursor.execute("""
         SELECT a.id, a.name, p.role, p.grade, p.time,
-               p.strong_subjects, p.weak_subjects, p.teaches
+               p.strong_subjects, p.weak_subjects
         FROM profiles p
         JOIN auth_users a ON a.id=p.user_id
         WHERE p.status='waiting'
           AND p.match_id IS NULL
-    """)
+          AND p.user_id!=?
+    """, (st.session_state.user_id,))
     rows = cursor.fetchall()
 
     users = []
@@ -128,7 +64,7 @@ def load_waiting_profiles():
             "role": r[2],
             "grade": r[3],
             "time": r[4],
-            "strong": (r[7] or r[5] or "").split(","),
+            "strong": (r[5] or "").split(","),
             "weak": (r[6] or "").split(",")
         })
     return users
@@ -146,26 +82,52 @@ def score(u1, u2):
 def find_best_match(current):
     best, best_score = None, -1
     for u in load_waiting_profiles():
-        if u["user_id"] == current["user_id"]:
-            continue
         sc = score(current, u)
         if sc > best_score:
             best, best_score = u, sc
     return best, best_score
 
 # =========================================================
-# AI FEATURES
+# LIVE CHAT
 # =========================================================
+def fetch_new_messages(match_id):
+    cursor.execute("""
+        SELECT sender, message, created_ts
+        FROM messages
+        WHERE match_id=?
+          AND created_ts>?
+        ORDER BY created_ts
+    """, (match_id, st.session_state.last_msg_ts))
+    rows = cursor.fetchall()
+
+    for s, m, ts in rows:
+        st.session_state.chat_log.append((s, m))
+        st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
+
+# =========================================================
+# AI HELPERS
+# =========================================================
+def ai_chat_ui():
+    st.subheader("🤖 AI Study Assistant")
+    q = st.text_input("Ask anything")
+    if st.button("Ask AI") and q:
+        ans = ask_ai(q)
+        st.session_state.ai_chat.append((q, ans))
+
+    for q, a in st.session_state.ai_chat[-5:]:
+        st.markdown(f"**You:** {q}")
+        st.markdown(f"**AI:** {a}")
+
 def generate_summary(chat):
     return ask_ai(
         "Summarize this study session in 5 bullet points:\n" +
-        "\n".join([m for _, m in chat][-20:])
+        "\n".join([m for _, m in chat][-30:])
     )
 
 def generate_quiz(chat):
     return ask_ai("""
-Create exactly 4 MCQ questions from this discussion.
-FORMAT STRICTLY AS:
+Create exactly 3 MCQ questions from this discussion.
+FORMAT STRICTLY:
 Q1: question
 A) option
 B) option
@@ -181,40 +143,141 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    cursor.execute("""
-        UPDATE profiles
-        SET status='waiting', match_id=NULL
-        WHERE user_id=? AND status!='matched'
-    """, (st.session_state.user_id,))
-    conn.commit()
-
-    if should_poll():
-        check_if_matched()
-        poll_tick()
-
     st.title("🤝 Study Matchmaking")
 
-    # =====================================================
-    # ACTIVE SESSION
-    # =====================================================
-    if st.session_state.current_match_id and not st.session_state.session_ended:
-        elapsed = now() - st.session_state.session_start_time
-        remaining = max(0, SESSION_TIMEOUT_SEC - elapsed)
-        st.success(f"⏱️ Time left: {remaining//60}m {remaining%60}s")
+    ai_chat_ui()
 
-        fetch_new_messages(st.session_state.current_match_id)
+    # -----------------------------------------------------
+    # FIND MATCH
+    # -----------------------------------------------------
+    if not st.session_state.confirmed:
+        cursor.execute("""
+            SELECT role, grade, time, strong_subjects, weak_subjects
+            FROM profiles WHERE user_id=?
+        """, (st.session_state.user_id,))
+        r = cursor.fetchone()
+        current = {
+            "user_id": st.session_state.user_id,
+            "role": r[0],
+            "grade": r[1],
+            "time": r[2],
+            "strong": (r[3] or "").split(","),
+            "weak": (r[4] or "").split(","),
+        }
 
-        st.subheader("💬 Study Chat")
-        for sender, msg in st.session_state.chat_log[-50:]:
-            st.markdown(f"**{sender}:** {msg}")
+        best, sc = find_best_match(current)
 
-        msg = st.text_input("Message")
-        if st.button("Send") and msg:
-            cursor.execute(
-                "INSERT INTO messages(match_id, sender, message) VALUES (?,?,?)",
-                (st.session_state.current_match_id, st.session_state.user_name, msg)
-            )
-            conn.commit()
-            st.rerun()
+        if best:
+            st.subheader("✨ Suggested Match")
+            st.write(f"**Name:** {best['name']}")
+            st.write(f"**Role:** {best['role']}")
+            st.write(f"**Grade:** {best['grade']}")
+            st.write(f"**Compatibility:** {sc}%")
+
+            if st.button("Confirm Match"):
+                match_id = f"{st.session_state.user_id}_{best['user_id']}_{now()}"
+
+                cursor.execute("""
+                    UPDATE profiles
+                    SET status='matched', match_id=?
+                    WHERE user_id IN (?,?)
+                """, (match_id, st.session_state.user_id, best["user_id"]))
+
+                cursor.execute("""
+                    INSERT INTO sessions(match_id, user1_id, user2_id, started_at)
+                    VALUES (?,?,?,?)
+                """, (match_id, st.session_state.user_id, best["user_id"], now()))
+
+                conn.commit()
+                st.session_state.current_match_id = match_id
+                st.session_state.session_start_time = now()
+                st.session_state.confirmed = True
+                st.balloons()
+                st.rerun()
+
+        else:
+            st.info("Waiting for compatible users...")
 
         return
+
+    # -----------------------------------------------------
+    # ACTIVE SESSION
+    # -----------------------------------------------------
+    fetch_new_messages(st.session_state.current_match_id)
+
+    st.subheader("💬 Live Study Chat")
+    for s, m in st.session_state.chat_log[-50:]:
+        st.markdown(f"**{s}:** {m}")
+
+    msg = st.text_input("Message")
+    if st.button("Send") and msg:
+        cursor.execute(
+            "INSERT INTO messages(match_id, sender, message, created_ts) VALUES (?,?,?,?)",
+            (st.session_state.current_match_id, st.session_state.user_name, msg, now())
+        )
+        conn.commit()
+        st.rerun()
+
+    # -----------------------------------------------------
+    # FILE UPLOAD
+    # -----------------------------------------------------
+    st.subheader("📎 Share Files")
+    f = st.file_uploader("Upload")
+    if f:
+        path = f"uploads/{st.session_state.current_match_id}_{f.name}"
+        with open(path, "wb") as out:
+            out.write(f.read())
+
+        cursor.execute("""
+            INSERT INTO session_files(match_id, uploader, filename, filepath)
+            VALUES (?,?,?,?)
+        """, (st.session_state.current_match_id, st.session_state.user_name, f.name, path))
+        conn.commit()
+        st.success("File uploaded")
+
+    # -----------------------------------------------------
+    # END SESSION
+    # -----------------------------------------------------
+    if st.button("End Session"):
+        cursor.execute("""
+            UPDATE sessions
+            SET ended_at=?
+            WHERE match_id=?
+        """, (now(), st.session_state.current_match_id))
+        conn.commit()
+
+        st.session_state.session_ended = True
+        st.session_state.summary = generate_summary(st.session_state.chat_log)
+        st.rerun()
+
+    # -----------------------------------------------------
+    # POST SESSION
+    # -----------------------------------------------------
+    if st.session_state.session_ended:
+        st.subheader("📝 Session Summary")
+        st.write(st.session_state.summary)
+
+        rating = st.slider("⭐ Rate your mentor", 1, 5)
+        if st.button("Submit Rating"):
+            cursor.execute("""
+                INSERT INTO session_ratings(match_id, rater_id, rater_name, rating)
+                VALUES (?,?,?,?)
+            """, (
+                st.session_state.current_match_id,
+                st.session_state.user_id,
+                st.session_state.user_name,
+                rating
+            ))
+            conn.commit()
+            st.success("Rating saved")
+
+        if st.button("Take Quiz"):
+            st.session_state.quiz = generate_quiz(st.session_state.chat_log)
+            st.session_state.show_quiz = True
+            st.rerun()
+
+        if st.session_state.show_quiz:
+            st.subheader("🧠 Quiz")
+            st.text(st.session_state.quiz)
+            if st.button("Finish Quiz"):
+                st.balloons()
