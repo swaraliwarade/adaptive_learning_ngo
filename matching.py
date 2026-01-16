@@ -2,7 +2,7 @@ import streamlit as st
 import time
 import os
 import random
-from database import cursor, conn
+from database import conn
 from ai_helper import ask_ai
 
 UPLOAD_DIR = "uploads"
@@ -37,7 +37,7 @@ def require_login():
         st.stop()
 
 def update_presence():
-    cursor.execute("""
+    conn.execute("""
         UPDATE profiles
         SET last_seen=?, status='waiting', match_id=NULL
         WHERE user_id=?
@@ -66,7 +66,7 @@ def reset_matchmaking():
 # MATCHING LOGIC
 # =========================================================
 def load_waiting_profiles():
-    cursor.execute("""
+    rows = conn.execute("""
         SELECT a.id, a.name, p.role, p.grade, p.time,
                p.strong_subjects, p.weak_subjects,
                COALESCE(p.last_seen, ?)
@@ -75,10 +75,10 @@ def load_waiting_profiles():
         WHERE p.user_id!=?
           AND p.status='waiting'
           AND p.match_id IS NULL
-    """, (now(), st.session_state.user_id))
+    """, (now(), st.session_state.user_id)).fetchall()
 
     users = []
-    for r in cursor.fetchall():
+    for r in rows:
         users.append({
             "user_id": r[0],
             "name": r[1],
@@ -119,14 +119,14 @@ def find_best_match(current):
 # LIVE CHAT
 # =========================================================
 def fetch_new_messages(match_id):
-    cursor.execute("""
+    rows = conn.execute("""
         SELECT sender, message, COALESCE(created_ts,0)
         FROM messages
         WHERE match_id=? AND COALESCE(created_ts,0) > ?
         ORDER BY created_ts
-    """, (match_id, st.session_state.last_msg_ts))
+    """, (match_id, st.session_state.last_msg_ts)).fetchall()
 
-    for s, m, ts in cursor.fetchall():
+    for s, m, ts in rows:
         st.session_state.chat_log.append((s, m))
         st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
 
@@ -167,13 +167,12 @@ def matchmaking_page():
     ai_chat_ui()
     st.divider()
 
-    # ================= MATCHING PHASE =================
+    # ================= MATCHING =================
     if not st.session_state.confirmed:
-        cursor.execute("""
+        r = conn.execute("""
             SELECT role, grade, time, strong_subjects, weak_subjects
             FROM profiles WHERE user_id=?
-        """, (st.session_state.user_id,))
-        r = cursor.fetchone()
+        """, (st.session_state.user_id,)).fetchone()
 
         current = {
             "user_id": st.session_state.user_id,
@@ -184,31 +183,27 @@ def matchmaking_page():
             "weak": (r[4] or "").split(","),
         }
 
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            if st.button("🔄 Check Compatible Users"):
-                st.session_state.refresh_key += 1
-                st.rerun()
+        if st.button("🔄 Check Compatible Users"):
+            st.session_state.refresh_key += 1
+            st.rerun()
 
         best, sc = find_best_match(current)
 
         if best and sc > 0:
             st.subheader("✨ Suggested Match")
             st.write(f"**Name:** {best['name']}")
-            st.write(f"**Grade:** {best['grade']}")
-            st.write(f"**Time:** {best['time']}")
-            st.write(f"**Compatibility Score:** {sc}")
+            st.write(f"**Compatibility:** {sc}")
 
             if st.button("Confirm Match"):
                 match_id = f"{st.session_state.user_id}_{best['user_id']}_{now()}"
 
-                cursor.execute("""
+                conn.execute("""
                     UPDATE profiles
                     SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
                 """, (match_id, st.session_state.user_id, best["user_id"]))
 
-                cursor.execute("""
+                conn.execute("""
                     INSERT INTO sessions(match_id, user1_id, user2_id, started_at)
                     VALUES (?,?,?,?)
                 """, (match_id, st.session_state.user_id, best["user_id"], now()))
@@ -219,7 +214,7 @@ def matchmaking_page():
                 st.balloons()
                 st.rerun()
         else:
-            st.info("No compatible users right now. Try again.")
+            st.info("No compatible users right now.")
 
         return
 
@@ -232,22 +227,15 @@ def matchmaking_page():
 
     msg = st.text_input("Message")
     if st.button("Send") and msg:
-        cursor.execute(
+        conn.execute(
             "INSERT INTO messages(match_id, sender, message, created_ts) VALUES (?,?,?,?)",
             (st.session_state.current_match_id, st.session_state.user_name, msg, now())
         )
         conn.commit()
         st.rerun()
 
-    f = st.file_uploader("Upload file")
-    if f:
-        path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
-        with open(path, "wb") as out:
-            out.write(f.read())
-        st.success("File uploaded")
-
     if st.button("End Session"):
-        cursor.execute("""
+        conn.execute("""
             UPDATE sessions SET ended_at=? WHERE match_id=?
         """, (now(), st.session_state.current_match_id))
         conn.commit()
@@ -263,7 +251,7 @@ def matchmaking_page():
 
         rating = st.slider("⭐ Rate mentor", 1, 5)
         if st.button("Submit Rating"):
-            cursor.execute("""
+            conn.execute("""
                 INSERT INTO session_ratings(match_id, rater_id, rater_name, rating)
                 VALUES (?,?,?,?)
             """, (
@@ -275,17 +263,5 @@ def matchmaking_page():
             conn.commit()
             st.success("Rating saved")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Take Quiz"):
-                st.session_state.quiz = generate_quiz(st.session_state.chat_log)
-                st.session_state.show_quiz = True
-
-        with col2:
-            if st.button("Back to Matchmaking"):
-                reset_matchmaking()
-
-        if st.session_state.show_quiz:
-            st.subheader("🧠 Quiz")
-            st.text(st.session_state.quiz)
-            st.balloons()
+        if st.button("Back to Matchmaking"):
+            reset_matchmaking()
