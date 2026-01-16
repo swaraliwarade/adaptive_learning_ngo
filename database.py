@@ -122,7 +122,7 @@ def init_db():
         """)
 
         # -------------------------
-        # REMATCH REQUESTS (Updated with 'seen' column)
+        # REMATCH REQUESTS (With 'seen' status)
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS rematch_requests (
