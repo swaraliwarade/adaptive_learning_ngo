@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import os
+import random
 from database import cursor, conn
 from ai_helper import ask_ai
 
@@ -29,6 +30,7 @@ def init_state():
         "summary": None,
         "quiz": None,
         "show_quiz": False,
+        "refresh_key": 0,   # 🔄 force re-evaluation
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -47,10 +49,6 @@ def require_login():
         st.stop()
 
 def reset_matchmaking():
-    """
-    Safely return user back to matchmaking
-    WITHOUT changing any DB features
-    """
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
@@ -58,7 +56,6 @@ def reset_matchmaking():
     """, (st.session_state.user_id,))
     conn.commit()
 
-    # Reset UI state
     for k in [
         "current_match_id",
         "session_start_time",
@@ -81,7 +78,7 @@ def reset_matchmaking():
 def load_waiting_profiles():
     cursor.execute("""
         SELECT a.id, a.name, p.role, p.grade, p.time,
-               p.strong_subjects, p.weak_subjects
+               p.strong_subjects, p.weak_subjects, p.last_seen
         FROM profiles p
         JOIN auth_users a ON a.id=p.user_id
         WHERE p.status='waiting'
@@ -99,11 +96,12 @@ def load_waiting_profiles():
             "grade": r[3],
             "time": r[4],
             "strong": (r[5] or "").split(","),
-            "weak": (r[6] or "").split(",")
+            "weak": (r[6] or "").split(","),
+            "last_seen": r[7] or 0
         })
     return users
 
-def score(u1, u2):
+def compatibility_score(u1, u2):
     s = 0
     s += len(set(u1["weak"]) & set(u2["strong"])) * 25
     s += len(set(u2["weak"]) & set(u1["strong"])) * 25
@@ -113,10 +111,21 @@ def score(u1, u2):
         s += 10
     return s
 
+def weighted_score(current, candidate):
+    base = compatibility_score(current, candidate)
+
+    # ⏱ recent activity bonus (max +10)
+    activity_bonus = max(0, 10 - (now() - candidate["last_seen"]) // 30)
+
+    # 🎲 randomness (0–5)
+    random_bonus = random.randint(0, 5)
+
+    return base + activity_bonus + random_bonus
+
 def find_best_match(current):
     best, best_score = None, -1
     for u in load_waiting_profiles():
-        sc = score(current, u)
+        sc = weighted_score(current, u)
         if sc > best_score:
             best, best_score = u, sc
     return best, best_score
@@ -199,6 +208,12 @@ def matchmaking_page():
             "weak": (r[4] or "").split(","),
         }
 
+        colA, colB = st.columns([3, 1])
+        with colB:
+            if st.button("🔄 Check Compatible Users"):
+                st.session_state.refresh_key += 1
+                st.rerun()
+
         best, sc = find_best_match(current)
 
         if best:
@@ -206,7 +221,7 @@ def matchmaking_page():
             st.write(f"**Name:** {best['name']}")
             st.write(f"**Role:** {best['role']}")
             st.write(f"**Grade:** {best['grade']}")
-            st.write(f"**Compatibility:** {sc}%")
+            st.write(f"**Compatibility Score:** {sc}")
 
             if st.button("Confirm Match"):
                 match_id = f"{st.session_state.user_id}_{best['user_id']}_{now()}"
@@ -229,7 +244,7 @@ def matchmaking_page():
                 st.balloons()
                 st.rerun()
         else:
-            st.info("Waiting for compatible users…")
+            st.info("No compatible users right now. Try again shortly.")
 
         return
 
@@ -251,9 +266,6 @@ def matchmaking_page():
         conn.commit()
         st.rerun()
 
-    # -----------------------------------------------------
-    # FILE UPLOAD
-    # -----------------------------------------------------
     f = st.file_uploader("Upload file")
     if f:
         path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
@@ -261,9 +273,6 @@ def matchmaking_page():
             out.write(f.read())
         st.success("File uploaded")
 
-    # -----------------------------------------------------
-    # END SESSION
-    # -----------------------------------------------------
     if st.button("End Session"):
         cursor.execute(
             "UPDATE sessions SET ended_at=? WHERE match_id=?",
@@ -275,9 +284,6 @@ def matchmaking_page():
         st.session_state.summary = generate_summary(st.session_state.chat_log)
         st.rerun()
 
-    # -----------------------------------------------------
-    # POST SESSION
-    # -----------------------------------------------------
     if st.session_state.session_ended:
         st.subheader("📝 Session Summary")
         st.write(st.session_state.summary)
@@ -297,12 +303,10 @@ def matchmaking_page():
             st.success("Rating saved")
 
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("Take Quiz"):
                 st.session_state.quiz = generate_quiz(st.session_state.chat_log)
                 st.session_state.show_quiz = True
-
         with col2:
             if st.button("Back to Matchmaking"):
                 reset_matchmaking()
