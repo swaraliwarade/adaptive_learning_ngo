@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 
 # =========================================================
 # PAGE CONFIG (MUST BE FIRST)
@@ -8,9 +9,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# ---- DIRECTORY SETUP FOR FILE SHARING ----
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
+
 from datetime import date
 
-# ---- IMPORT PAGES (AFTER set_page_config) ----
+# ---- IMPORT PAGES ----
 from materials import materials_page
 from practice import practice_page
 from admin import admin_page
@@ -22,7 +27,7 @@ from matching import matchmaking_page
 from database import init_db
 
 # =========================================================
-# GLOBAL UI STYLES
+# GLOBAL UI STYLES (MAINTAINED)
 # =========================================================
 st.markdown("""
 <style>
@@ -32,19 +37,16 @@ html, body, [class*="css"] {
     font-family: 'Poppins','Inter','Segoe UI',sans-serif;
 }
 
-/* App background */
 .stApp {
     background: linear-gradient(135deg,#f5f7fa,#eef1f5);
 }
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
   background: rgba(255,255,255,0.9);
   backdrop-filter: blur(12px);
   border-right: 1px solid rgba(200,200,200,0.3);
 }
 
-/* ================= SAHAY TITLE CARD (ONLY COLOR CHANGED) ================= */
 .sidebar-header {
   padding:1.6rem;
   border-radius:20px;
@@ -67,33 +69,17 @@ section[data-testid="stSidebar"] {
   opacity:0.9;
 }
 
-/* Cards */
 .card {
   background: rgba(255,255,255,.95);
   border-radius:20px;
   padding:1.8rem;
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
-
-/* Donate button (unchanged) */
-.donate-btn {
-  display:block;
-  width:100%;
-  padding:0.9rem 1rem;
-  margin-top:1rem;
-  border-radius:999px;
-  text-align:center;
-  font-weight:700;
-  font-size:0.95rem;
-  color:#ffffff !important;
-  background:linear-gradient(135deg,#6366f1,#4f46e5);
-  text-decoration:none;
-}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# SESSION STATE INIT
+# SESSION STATE INIT (UPDATED)
 # =========================================================
 for key, default in {
     "logged_in": False,
@@ -101,7 +87,8 @@ for key, default in {
     "user_name": "",
     "page": "Dashboard",
     "proposed_match": None,
-    "proposed_score": None
+    "proposed_score": None,
+    "session_step": "discovery" # Added for Matching Logic
 }.items():
     st.session_state.setdefault(key, default)
 
@@ -123,6 +110,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # Use icons or text based on your preference
     for label in [
         "Dashboard",
         "Matchmaking",
@@ -133,6 +121,10 @@ with st.sidebar:
     ]:
         if st.button(label, use_container_width=True):
             st.session_state.page = label
+            # If leaving matchmaking, you might want to reset session_step 
+            # to 'discovery' so the user doesn't return to a stuck screen
+            if label != "Matchmaking":
+                st.session_state.session_step = "discovery"
             st.rerun()
 
     st.divider()
@@ -150,6 +142,7 @@ if page == "Dashboard":
     dashboard_page()
 
 elif page == "Matchmaking":
+    # The matchmaking page handles its own sub-routing (Discovery -> Confirmation -> Live)
     matchmaking_page()
 
 elif page == "Learning Materials":
