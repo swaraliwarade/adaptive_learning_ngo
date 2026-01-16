@@ -17,30 +17,56 @@ def load_lottieurl(url: str):
 def inject_emerald_streak_styles():
     st.markdown("""
         <style>
+        /* Container with improved visibility and contrast */
         .streak-container {
-            background: white;
-            padding: 25px;
-            border-radius: 20px;
-            border: 1px solid #d1fae5;
-            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.05);
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 24px;
+            border: 2px solid #ecfdf5;
+            box-shadow: 0 20px 25px -5px rgba(16, 185, 129, 0.1), 0 10px 10px -5px rgba(16, 185, 129, 0.04);
             text-align: center;
+            margin-bottom: 20px;
         }
+        
+        /* Large, highly visible streak number */
         .streak-number {
-            font-size: 3rem;
+            font-size: 4.5rem;
             font-weight: 900;
-            color: #059669;
+            color: #047857; /* Deep Emerald for visibility */
             line-height: 1;
-            margin: 10px 0;
+            margin: 5px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.05);
         }
+        
+        /* Label styling with better letter spacing */
         .streak-label {
             color: #064e3b;
-            font-weight: 600;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 0.8rem;
+            letter-spacing: 2px;
+            font-size: 0.9rem;
+            margin-bottom: 0px;
         }
+
+        /* Level Name text */
+        .level-name {
+            color: #10b981;
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+        }
+        
+        /* Customizing the Progress Bar color to Emerald Gradient */
         .stProgress > div > div > div > div {
-            background-image: linear-gradient(to right, #34d399, #10b981);
+            background-image: linear-gradient(to right, #6ee7b7, #10b981) !important;
+        }
+
+        /* Caption visibility fix */
+        .streak-caption {
+            color: #374151;
+            font-weight: 500;
+            font-size: 0.85rem;
+            margin-top: 5px;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -99,13 +125,13 @@ def update_streak():
     return False
 
 # -----------------------------------------------------
-# UI RENDERING (ANIMATED)
+# UI RENDERING (ENHANCED ANIMATED)
 # -----------------------------------------------------
 STREAK_LEVELS = [
-    (0, "Initiating Growth", "https://assets3.lottiefiles.com/packages/lf20_7msh8sn0.json"), # Sprout
-    (3, "Vibrant Learner", "https://assets1.lottiefiles.com/private_files/lf30_8ez6ny.json"), # Growing Plant
-    (7, "Study Master", "https://assets1.lottiefiles.com/packages/lf20_08m9ayre.json"), # Big Tree
-    (14, "Emerald Legend", "https://assets10.lottiefiles.com/packages/lf20_touohxv0.json") # Trophy/Success
+    (0, "Initiating Growth", "https://assets3.lottiefiles.com/packages/lf20_7msh8sn0.json"), 
+    (3, "Vibrant Learner", "https://assets1.lottiefiles.com/private_files/lf30_8ez6ny.json"), 
+    (7, "Study Master", "https://assets1.lottiefiles.com/packages/lf20_08m9ayre.json"), 
+    (14, "Emerald Legend", "https://lottie.host/81a9673d-907a-426c-850d-851f5056804d/5vK5oXpL5I.json") 
 ]
 
 def render_streak_ui():
@@ -114,8 +140,8 @@ def render_streak_ui():
     
     streak = st.session_state.streak
     
-    # Select appropriate animation based on streak level
-    current_level_name = "Beginner"
+    # Logic to select level and animation
+    current_level_name = "Seedling"
     active_anim_url = STREAK_LEVELS[0][2]
     
     for days, name, url in STREAK_LEVELS:
@@ -125,31 +151,37 @@ def render_streak_ui():
 
     anim_data = load_lottieurl(active_anim_url)
 
+    # Container Start
     st.markdown("<div class='streak-container'>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns([0.4, 0.6])
+    col1, col2 = st.columns([0.45, 0.55])
     
     with col1:
         if anim_data:
-            st_lottie(anim_data, height=180, key="streak_anim_main")
+            st_lottie(anim_data, height=220, key="streak_anim_enhanced", speed=1)
             
     with col2:
         st.markdown(f"<div class='streak-label'>Current Momentum</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='streak-number'>{streak}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='color: #10b981; font-weight: 700;'>{current_level_name}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='level-name'>{current_level_name}</div>", unsafe_allow_html=True)
         
-        st.write("")
-        # Weekly progress calculation
-        progress_val = (streak % 7) / 7.0 if (streak % 7 != 0) else 1.0
-        st.progress(progress_val)
-        st.caption(f"Syncing Node Progress: {int(progress_val*100)}%")
+        # Weekly progress calculation logic
+        # If streak is 0, progress 0. If streak > 0, show remainder of week
+        weekly_step = streak % 7
+        if streak > 0 and weekly_step == 0:
+            progress_val = 1.0
+        else:
+            progress_val = weekly_step / 7.0
+            
+        st.progress(max(progress_val, 0.05)) # Small bar even at 0 for visual interest
+        st.markdown(f"<div class='streak-caption'>Syncing Node Progress: {int(progress_val*100)}%</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Emotional motivation message (No emojis)
+    # Status Notification Styling
     if streak == 0:
-        st.info("The best time to start was yesterday. The second best time is now.")
+        st.info("Your learning sequence is ready to begin. Complete a session to activate growth.")
     elif streak < 3:
-        st.success("Foundation established. Keep the momentum going.")
+        st.success("Consistency bridge established. Maintain activity to evolve your node.")
     else:
-        st.success("Maximum consistency detected. Your learning node is thriving.")
+        st.success("High-frequency learning detected. Your Emerald status is currently peak.")
