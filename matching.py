@@ -13,7 +13,9 @@ from streamlit_lottie import st_lottie
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# (get_db_connection, run_query, load_lottieurl, inject_emerald_theme remain unchanged)
+# ---------------------------------------------------------
+# DATABASE HELPERS
+# ---------------------------------------------------------
 def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -86,7 +88,9 @@ def inject_emerald_theme():
         </style>
     """, unsafe_allow_html=True)
 
-# (Discovery, Confirmation, Live Session functions remain unchanged)
+# ---------------------------------------------------------
+# SESSION STEPS
+# ---------------------------------------------------------
 def show_discovery():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
@@ -171,7 +175,6 @@ def show_rating():
     st.title("Performance Review")
     lottie_rate = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_myejiobi.json")
     if lottie_rate: st_lottie(lottie_rate, height=150, key="rate")
-
     st.write(f"Evaluate the collaboration quality of **{st.session_state.peer_info['name']}**")
     rating = st.select_slider("Efficiency Rating", options=[1, 2, 3, 4, 5], value=5)
     feedback = st.text_area("Observation Notes")
@@ -183,39 +186,22 @@ def show_rating():
         with st.spinner("Groq AI Generating Session Analytics..."):
             msgs = run_query("SELECT sender, message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
             transcript = "\n".join([f"{m['sender']}: {m['message']}" for m in msgs]) if msgs else "No data."
-            
-            prompt = f"""
-            Analyze this study chat transcript: {transcript}
-            1. Provide a 3-bullet point summary inside [SUMMARY] [/SUMMARY] tags.
-            2. Provide 3 MCQs in a valid JSON list inside [QUIZ] [/QUIZ] tags.
-            Example JSON: [{{"question": "...", "options": ["A", "B", "C"], "answer": "A"}}]
-            """
+            prompt = f"Analyze this study chat transcript: {transcript}. Provide a summary in [SUMMARY] tags and 3 MCQs in [QUIZ] tags."
             
             try:
                 full_res = ask_ai(prompt)
-                
-                # Robust extraction
-                if "[SUMMARY]" in full_res:
-                    st.session_state.session_summary = full_res.split("[SUMMARY]")[1].split("[/SUMMARY]")[0].strip()
-                else:
-                    st.session_state.session_summary = "Session concluded successfully."
-
+                st.session_state.session_summary = full_res.split("[SUMMARY]")[1].split("[/SUMMARY]")[0].strip() if "[SUMMARY]" in full_res else "Done."
                 json_pattern = re.compile(r'\[\s*\{.*\}\s*\]', re.DOTALL)
                 match = json_pattern.search(full_res)
-                if match:
-                    st.session_state.quiz_data = json.loads(match.group())
-                else:
-                    st.session_state.quiz_data = []
-
-            except Exception as e:
-                st.session_state.session_summary = "AI Summary currently unavailable."
+                st.session_state.quiz_data = json.loads(match.group()) if match else []
+            except:
+                st.session_state.session_summary = "AI Summary unavailable."
                 st.session_state.quiz_data = []
         
         st.session_state.session_step = "quiz"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# (show_quiz and matchmaking_page remain unchanged)
 def show_quiz():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
@@ -225,7 +211,7 @@ def show_quiz():
         st.markdown(f"<div class='summary-box'>{st.session_state.session_summary}</div>", unsafe_allow_html=True)
     quiz = st.session_state.get('quiz_data', [])
     if not quiz:
-        st.write("Verification data unavailable. Returning to dashboard.")
+        st.write("Verification data unavailable.")
         if st.button("Complete"): st.session_state.quiz_done = True
     else:
         with st.form("quiz_form"):
@@ -234,8 +220,6 @@ def show_quiz():
                 st.write(f"**Question {i+1}: {q['question']}**")
                 user_ans.append(st.radio("Select Option", q['options'], key=f"q_{i}"))
             if st.form_submit_button("Submit Answers"):
-                score = sum(1 for i, q in enumerate(quiz) if user_ans[i] == q['answer'])
-                st.success(f"Verification Score: {score}/{len(quiz)}")
                 st.session_state.quiz_done = True
     if st.session_state.get('quiz_done'):
         if st.button("Return to Discovery Mode"):
@@ -246,15 +230,55 @@ def show_quiz():
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# MAIN MATCHMAKING PAGE (UPDATED)
+# ---------------------------------------------------------
 def matchmaking_page():
-    if "session_step" not in st.session_state: st.session_state.session_step = "discovery"
+    if "session_step" not in st.session_state: 
+        st.session_state.session_step = "discovery"
+    
+    # 1. Fetch current database status
     res = run_query("SELECT status, match_id FROM profiles WHERE user_id=?", (st.session_state.user_id,), fetchone=True)
-    if res and res.get('status') == 'confirming' and st.session_state.session_step == "discovery":
-        peer = run_query("SELECT a.name, p.user_id FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.match_id=? AND p.user_id!=?", (res['match_id'], st.session_state.user_id), fetchone=True)
+    
+    # 2. Check for 'matched' status (This is the Rematch trigger)
+    if res and res.get('status') == 'matched' and res.get('match_id'):
+        peer = run_query("""
+            SELECT a.name, p.user_id FROM profiles p 
+            JOIN auth_users a ON a.id = p.user_id 
+            WHERE p.match_id = ? AND p.user_id != ?
+        """, (res['match_id'], st.session_state.user_id), fetchone=True)
+        
+        if peer:
+            st.session_state.peer_info = {"id": peer['user_id'], "name": peer['name']}
+            st.session_state.current_match_id = res['match_id']
+            st.session_state.session_step = "live" # BYPASS directly to live session
+        else:
+            st.info("Waiting for your partner to join the session...")
+            if st.button("Cancel & Return"):
+                run_query("UPDATE profiles SET status='active', match_id=NULL WHERE user_id=?", (st.session_state.user_id,), commit=True)
+                st.rerun()
+            return
+
+    # 3. Check for 'confirming' status (Standard discovery logic)
+    elif res and res.get('status') == 'confirming' and st.session_state.session_step == "discovery":
+        peer = run_query("""
+            SELECT a.name, p.user_id FROM profiles p 
+            JOIN auth_users a ON a.id = p.user_id 
+            WHERE p.match_id = ? AND p.user_id != ?
+        """, (res['match_id'], st.session_state.user_id), fetchone=True)
+        
         if peer:
             st.session_state.peer_info = {"id": peer['user_id'], "name": peer['name']}
             st.session_state.current_match_id = res['match_id']
             st.session_state.session_step = "confirmation"
             st.rerun()
-    steps = {"discovery": show_discovery, "confirmation": show_confirmation, "live": show_live_session, "rating": show_rating, "quiz": show_quiz}
+
+    # 4. Route to current step
+    steps = {
+        "discovery": show_discovery, 
+        "confirmation": show_confirmation, 
+        "live": show_live_session, 
+        "rating": show_rating, 
+        "quiz": show_quiz
+    }
     steps.get(st.session_state.session_step, show_discovery)()
