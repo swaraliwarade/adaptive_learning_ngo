@@ -99,18 +99,33 @@ def dashboard_page():
 
         st.subheader("Profile Setup" if not profile else " Edit Profile")
 
-        # prefill values
-        role = profile[0] if profile else "Student"
-        grade = profile[1] if profile else "Grade 1"
+        # Prefill logic with safety checks
+        default_role = profile[0] if profile else "Student"
+        
+        # SAFE GRADE CALCULATION
+        raw_grade = profile[1] if profile else "Grade 1"
+        try:
+            # Extract number safely: "Grade 5" -> 5 -> index 4
+            grade_index = int(str(raw_grade).split()[-1]) - 1
+            grade_index = max(0, min(grade_index, 9)) # Clamp between 0-9
+        except (ValueError, IndexError, AttributeError):
+            grade_index = 0
+
         time_slot = profile[2] if profile else TIME_SLOTS[0]
+        try:
+            ts_index = TIME_SLOTS.index(time_slot)
+        except ValueError:
+            ts_index = 0
+
         strong_list = profile[3].split(",") if profile and profile[3] else []
         weak_list = profile[4].split(",") if profile and profile[4] else []
         teach_list = profile[5].split(",") if profile and profile[5] else []
 
+        # Form usage with mandatory Submit Button
         with st.form("profile_form"):
-            role = st.radio("Role", ["Student", "Teacher"], horizontal=True, index=0 if role=="Student" else 1)
-            grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)], index=int(grade.split()[-1]) - 1)
-            time_slot = st.selectbox("Available Time Slot", TIME_SLOTS, index=TIME_SLOTS.index(time_slot))
+            role = st.radio("Role", ["Student", "Teacher"], horizontal=True, index=0 if default_role=="Student" else 1)
+            grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)], index=grade_index)
+            time_slot = st.selectbox("Available Time Slot", TIME_SLOTS, index=ts_index)
 
             strong, weak, teaches = [], [], []
 
@@ -122,27 +137,27 @@ def dashboard_page():
 
             submitted = st.form_submit_button("Save Profile")
 
-        if submitted:
-            cursor.execute("""
-                INSERT OR REPLACE INTO profiles (
-                    user_id, role, grade, time,
-                    strong_subjects, weak_subjects, teaches, status
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
-            """, (
-                st.session_state.user_id,
-                role,
-                grade,
-                time_slot,
-                ",".join(strong),
-                ",".join(weak),
-                ",".join(teaches)
-            ))
-            conn.commit()
+            if submitted:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO profiles (
+                        user_id, role, grade, time,
+                        strong_subjects, weak_subjects, teaches, status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting')
+                """, (
+                    st.session_state.user_id,
+                    role,
+                    grade,
+                    time_slot,
+                    ",".join(strong),
+                    ",".join(weak),
+                    ",".join(teaches)
+                ))
+                conn.commit()
 
-            st.session_state.edit_profile = False
-            st.success("Profile saved successfully!")
-            st.rerun()
+                st.session_state.edit_profile = False
+                st.success("Profile saved successfully!")
+                st.rerun()
 
         return
 
@@ -167,8 +182,9 @@ def dashboard_page():
 
     with col1:
         st.markdown("### Strong Subjects")
-        if strong_list or teach_list:
-            for s in (strong_list or teach_list):
+        display_strong = teach_list if role == "Teacher" else strong_list
+        if display_strong:
+            for s in display_strong:
                 st.success(s)
         else:
             st.info("Not added")
@@ -195,9 +211,9 @@ def dashboard_page():
     st.divider()
 
     # -------------------------------------------------
-    # 📜 MATCH HISTORY
+    # MATCH HISTORY
     # -------------------------------------------------
-    st.subheader("⚙︎ Match History")
+    st.subheader("Match History")
 
     history = load_match_history(st.session_state.user_id)
 
@@ -219,9 +235,9 @@ def dashboard_page():
     st.divider()
 
     # -------------------------------------------------
-    # 🔔 REMATCH REQUESTS
+    # REMATCH REQUESTS
     # -------------------------------------------------
-    st.subheader("⚙︎ Rematch Requests")
+    st.subheader("Rematch Requests")
 
     requests = load_incoming_requests(st.session_state.user_id)
 
