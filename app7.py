@@ -44,22 +44,21 @@ section[data-testid="stSidebar"] {
   border-right: 1px solid rgba(200,200,200,0.3);
 }
 
-/* ================= SAHAY TITLE (ONLY THIS CHANGED) ================= */
+/* ================= SAHAY TITLE CARD (ONLY COLOR CHANGED) ================= */
 .sidebar-header {
   padding:1.6rem;
   border-radius:20px;
-  background:
-    radial-gradient(circle at top left, #818cf8, #6366f1 40%, #4f46e5);
+  background: linear-gradient(135deg, #0f766e, #14b8a6, #22c55e);
   color:white;
   margin-bottom:1.4rem;
   text-align:center;
-  box-shadow:0 12px 30px rgba(79,70,229,0.45);
+  box-shadow:0 12px 30px rgba(20,184,166,0.45);
 }
 
 .sidebar-header .app-name {
   font-size:2.6rem;
   font-weight:800;
-  letter-spacing:0.04em;
+  letter-spacing:0.06em;
 }
 
 .sidebar-header .username {
@@ -76,57 +75,19 @@ section[data-testid="stSidebar"] {
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
 
-/* ================= PURPLE BUTTON SYSTEM ================= */
-/* Applies everywhere EXCEPT sidebar nav buttons logic-wise */
-.stApp .stButton > button {
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(135deg,#6366f1,#4f46e5);
-  color: #ffffff;
-  border: none;
-  border-radius: 999px;
-  padding: 0.55rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  box-shadow: 0 6px 18px rgba(79,70,229,0.35);
-}
-
-/* Hover */
-.stApp .stButton > button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 28px rgba(79,70,229,0.45);
-  background: linear-gradient(135deg,#4f46e5,#4338ca);
-}
-
-/* Ripple */
-.stApp .stButton > button::after {
-  content:"";
-  position:absolute;
-  top:50%;
-  left:50%;
-  width:8px;
-  height:8px;
-  background:rgba(255,255,255,0.5);
-  border-radius:50%;
-  transform:translate(-50%,-50%) scale(0);
-  opacity:0;
-}
-
-.stApp .stButton > button:active::after {
-  animation:ripple 0.6s ease-out;
-}
-
-@keyframes ripple {
-  0% {
-    transform:translate(-50%,-50%) scale(0);
-    opacity:0.7;
-  }
-  100% {
-    transform:translate(-50%,-50%) scale(18);
-    opacity:0;
-  }
+/* Donate button (unchanged) */
+.donate-btn {
+  display:block;
+  width:100%;
+  padding:0.9rem 1rem;
+  margin-top:1rem;
+  border-radius:999px;
+  text-align:center;
+  font-weight:700;
+  font-size:0.95rem;
+  color:#ffffff !important;
+  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  text-decoration:none;
 }
 </style>
 """, unsafe_allow_html=True)
