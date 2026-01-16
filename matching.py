@@ -5,9 +5,6 @@ import random
 from database import conn
 from ai_helper import ask_ai
 
-# =========================================================
-# CONFIG
-# =========================================================
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -36,6 +33,8 @@ def init_state():
         "rating_given": False,
         "ai_chat": [],
         "refresh_key": 0,
+        "proposed_match": None,
+        "proposed_score": None,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -95,7 +94,7 @@ def load_waiting_profiles():
             "grade": r[2],
             "time": r[3],
             "strong": (r[4] or "").split(","),
-            "weak": (r[5] or "").split(",")
+            "weak": (r[5] or "").split(","),
         })
     return users
 
@@ -156,8 +155,8 @@ def matchmaking_page():
     ai_chat_ui()
     st.divider()
 
-    # ================= MATCHING =================
-    if not st.session_state.confirmed:
+    # ================= MATCH SEARCH =================
+    if not st.session_state.confirmed and not st.session_state.proposed_match:
         r = conn.execute("""
             SELECT grade, time, strong_subjects, weak_subjects
             FROM profiles WHERE user_id=?
@@ -171,33 +170,65 @@ def matchmaking_page():
         }
 
         if st.button("Check compatible users"):
-            st.session_state.refresh_key += 1
+            best, score = find_best_match(current)
+            if best:
+                st.session_state.proposed_match = best
+                st.session_state.proposed_score = score
+                st.rerun()
 
-        best, score = find_best_match(current)
+        st.info("Click “Check compatible users” to find a match.")
+        return
 
-        if best and score > 0:
-            st.write(f"Suggested match: **{best['name']}**")
-            st.write(f"Compatibility score: {score}")
+    # ================= CONFIRMATION PAGE =================
+    if st.session_state.proposed_match and not st.session_state.confirmed:
+        u = st.session_state.proposed_match
 
-            if st.button("Connect"):
-                match_id = f"{st.session_state.user_id}_{best['user_id']}_{now()}"
+        st.subheader("Confirm your study partner")
+
+        with st.container():
+            st.markdown(f"""
+            <div style="border:1px solid #e5e7eb;
+                        border-radius:12px;
+                        padding:16px;
+                        background:#ffffff">
+                <h4>{u['name']}</h4>
+                <p><b>Grade:</b> {u['grade']}</p>
+                <p><b>Time slot:</b> {u['time']}</p>
+                <p><b>Strong subjects:</b> {", ".join(u['strong'])}</p>
+                <p><b>Weak subjects:</b> {", ".join(u['weak'])}</p>
+                <p><b>Compatibility score:</b> {st.session_state.proposed_score}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Confirm match"):
+                match_id = f"{st.session_state.user_id}_{u['user_id']}_{now()}"
 
                 conn.execute("""
                     UPDATE profiles SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
-                """, (match_id, st.session_state.user_id, best["user_id"]))
+                """, (match_id, st.session_state.user_id, u["user_id"]))
 
                 conn.execute("""
                     INSERT INTO sessions(match_id, user1_id, user2_id, started_at)
                     VALUES (?,?,?,?)
-                """, (match_id, st.session_state.user_id, best["user_id"], now()))
+                """, (match_id, st.session_state.user_id, u["user_id"], now()))
 
                 conn.commit()
+
                 st.session_state.current_match_id = match_id
                 st.session_state.confirmed = True
+                st.session_state.proposed_match = None
+                st.balloons()
                 st.rerun()
-        else:
-            st.info("No compatible users right now.")
+
+        with col2:
+            if st.button("Find another match"):
+                st.session_state.proposed_match = None
+                st.session_state.proposed_score = None
+                st.rerun()
+
         return
 
     # ================= LIVE SESSION =================
@@ -218,7 +249,6 @@ def matchmaking_page():
         conn.commit()
         st.rerun()
 
-    # ================= FILE UPLOAD =================
     f = st.file_uploader("Upload file")
     if f:
         path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
@@ -232,7 +262,6 @@ def matchmaking_page():
         conn.commit()
         st.success("File uploaded")
 
-    # ================= END SESSION =================
     if st.button("End session"):
         conn.execute(
             "UPDATE sessions SET ended_at=? WHERE match_id=?",
