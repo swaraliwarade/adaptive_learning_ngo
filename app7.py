@@ -28,7 +28,7 @@ from matching import matchmaking_page
 from database import init_db
 
 # =========================================================
-# GLOBAL UI STYLES (MAINTAINED)
+# GLOBAL UI STYLES (EMERALD THEME + RIPPLE EFFECT)
 # =========================================================
 st.markdown("""
 <style>
@@ -78,24 +78,54 @@ section[data-testid="stSidebar"] {
   margin-bottom: 1.5rem;
 }
 
+/* --- DONATION CARD STYLING --- */
 .donation-card {
     background: white; 
-    padding: 1.5rem; 
-    border-radius: 15px; 
-    border-left: 6px solid #10b981; 
-    margin-bottom: 1rem; 
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    padding: 1.8rem; 
+    border-radius: 20px; 
+    border-left: 8px solid #10b981; 
+    margin-bottom: 1.5rem; 
+    box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+    transition: all 0.3s ease;
 }
 
-/* Button override to match emerald theme */
-div.stButton > button {
-    border-radius: 10px;
+.donation-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 25px rgba(16, 185, 129, 0.1);
+}
+
+/* --- EMERALD RIPPLE BUTTON --- */
+.ripple-btn {
+    background: #10b981;
+    color: white !important;
+    padding: 14px 28px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.5s;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+    text-align: center;
+}
+
+.ripple-btn:hover {
+    background: #0d9488 radial-gradient(circle, transparent 1%, #0d9488 1%) center/15000%;
+}
+
+.ripple-btn:active {
+    background-color: #0f766e;
+    background-size: 100%;
+    transition: background 0s;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# SESSION STATE INIT (UPDATED)
+# SESSION STATE INIT
 # =========================================================
 for key, default in {
     "logged_in": False,
@@ -164,46 +194,50 @@ elif page == "Practice":
     practice_page()
 
 elif page == "Donations":
-    st.markdown("<div class='card'><h1>Support Education</h1><p>Your contribution empowers the next generation of learners.</p></div>", unsafe_allow_html=True)
+    st.markdown("""
+        <div class='card'>
+            <h1 style='color:#0f766e; margin-bottom:0;'>Support Education</h1>
+            <p style='color:#64748b;'>Choose a platform below to make a direct impact on a student's future.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
-    # Organization Data
+    # Organization Data with SVG Vector Art
     donations = [
         {
             "name": "Pratham",
             "url": "https://pratham.org/donation/",
-            "desc": "One of India's largest NGOs, Pratham focuses on high-quality, low-cost interventions to address gaps in the education system and ensure every child is in school and learning well.",
-            "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>'
+            "desc": "Focuses on high-quality, low-cost, and replicable interventions to address gaps in the education system and ensure every child is learning well.",
+            "icon": '<svg viewBox="0 0 24 24" width="45" height="45" stroke="#0f766e" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>'
         },
         {
             "name": "Akshaya Patra",
             "url": "https://www.akshayapatra.org/onlinedonations",
-            "desc": "The Akshaya Patra Foundation is a non-profit organisation in India that operates a mid-day meal scheme, helping children stay in school by eliminating classroom hunger.",
-            "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>'
+            "desc": "The world's largest NGO-run mid-day meal programme, serving wholesome food to over 2 million children in India every school day.",
+            "icon": '<svg viewBox="0 0 24 24" width="45" height="45" stroke="#0f766e" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>'
         },
         {
             "name": "Teach For India",
             "url": "https://www.teachforindia.org/donate",
-            "desc": "A nationwide movement of outstanding college graduates and young professionals who commit two years to teach full-time in under-resourced schools.",
-            "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>'
+            "desc": "A movement of promising leaders who commit two years to teaching full-time in under-resourced schools to eliminate educational inequity.",
+            "icon": '<svg viewBox="0 0 24 24" width="45" height="45" stroke="#0f766e" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>'
         }
     ]
 
     for org in donations:
         st.markdown(f"""
         <div class="donation-card">
-            <div style="display: flex; align-items: center; gap: 20px;">
-                <div>{org['icon']}</div>
+            <div style="display: flex; align-items: start; gap: 25px; margin-bottom: 20px;">
+                <div style="background: #f0fdf4; padding: 12px; border-radius: 12px;">{org['icon']}</div>
                 <div>
-                    <h3 style="margin:0; color:#0f766e;">{org['name']}</h3>
-                    <p style="margin:5px 0 0 0; color:#4b5563; line-height:1.4;">{org['desc']}</p>
+                    <h2 style="margin:0; color:#0f766e; font-size: 1.5rem;">{org['name']}</h2>
+                    <p style="margin:8px 0 0 0; color:#475569; line-height:1.6; font-size:1rem;">{org['desc']}</p>
                 </div>
             </div>
+            <a href="{org['url']}" target="_blank" class="ripple-btn">
+                Contribute to {org['name']} →
+            </a>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Link button styled to match the emerald theme
-        st.link_button(f"Visit {org['name']} →", org['url'])
-        st.markdown("<br>", unsafe_allow_html=True)
 
 elif page == "Admin":
     key = st.text_input("Admin Access Key", type="password")
